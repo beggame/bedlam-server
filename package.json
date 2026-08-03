@@ -1,0 +1,20 @@
+{
+  "name": "darmaduman-net",
+  "version": "1.0.0",
+  "description": "Darmaduman/Bedlam - PeerJS sinyalleşme + Maç Ara eşleştirme sunucusu",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "express": "^5.2.1",
+    "peer": "^1.0.2",
+    "ws": "^8.21.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
