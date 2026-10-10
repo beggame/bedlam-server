@@ -25,9 +25,17 @@ Tek Node.js süreci, tek port. Maç trafiği sunucudan **geçmez** (WebRTC, gere
 | `CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN` | Cloudflare TURN (ayda 1000 GB ücretsiz). Cloudflare → Realtime → TURN Server → Create |
 | `METERED_ICE_URL` | Alternatif: Metered TURN, `https://APP.metered.live/api/v1/turn/credentials?apiKey=...` |
 | `BOT_FILL_MS` | Bot doldurma süresi, varsayılan 15000 |
+| `CF_ACCOUNT_ID`, `CF_ANALYTICS_TOKEN` | Cloudflare hesap kimliği + "Account Analytics: Read" izinli API token. Aylık koruma bununla kullanımı okur; Cloudflare TURN açıkken bunlar YOKSA TURN verilmez (güvenli taraf) |
+| `TURN_MONTH_CAP_GB` | son 30 günde bu kadar GB çıkış olunca TURN kapanır, varsayılan 800 (ücretsiz sınır 1000) |
+| `ICE_DAY_CAP` | günde en çok TURN kimliği, varsayılan 500; dolunca salt STUN |
+| `ICE_IP_PER_HOUR` | aynı IP'ye saatte en çok kimlik, varsayılan 20 |
+| `ICE_TTL_S` | kimlik ömrü, varsayılan 10800 (3 saat) |
+| `TURN_OFF` | `1` → TURN tamamen kapalı (acil durum) |
 | `KEEP_AWAKE` | `1` → kendi adresine 10 dk'da bir istek, Render ücretsiz plan uyumaz (ayda 750 saat, tek servis 7/24 ≈ 744 saat) |
 
 TURN tanımlı değilse yalnız STUN döner (eski davranış).
+
+**Masraf koruması:** Cloudflare TURN sonradan ödemelidir ve panelde harcama tavanı yoktur. Bu yüzden sunucu son 30 günün faturalanan çıkış trafiğini 20 dk'da bir okur, 800 GB'a ulaşınca TURN'ü kapatır (kayan 30 gün → fatura dönemi nereden başlarsa başlasın 1000 GB aşılmaz). Kullanım 6 saattir okunamıyorsa da kapatır. Her oyuncuya kendi 3 saatlik kimliği verilir, IP ve günlük sınır vardır. `/stats` → `turn30dGB`, `turnBlocked`. Acil durdurma: `TURN_OFF=1` ya da Cloudflare'de TURN anahtarını silmek.
 
 ## Yerelde test
 ```bash
