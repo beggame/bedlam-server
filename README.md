@@ -1,61 +1,36 @@
-# Darmaduman / Bedlam — Ağ Sunucusu (sinyalleşme + Maç Ara)
+# Bedlam — Ağ Sunucusu v2 (sinyalleşme + Maç Ara + TURN)
 
-Tek Node.js süreci, tek port. İki görevi var:
+Tek Node.js süreci, tek port. Maç trafiği sunucudan **geçmez** (WebRTC, gerekirse TURN rölesi).
 
-- **/peerjs** → WebRTC sinyalleşme (PeerJS bulutunun yerine geçer; oda kodu akışı da artık buradan çalışır)
-- **/mm** → "Maç Ara" eşleştirme kuyruğu (2 / 3 / 4 kişilik)
+| Yol | Görev |
+|---|---|
+| `/peerjs` | WebRTC sinyalleşme (PeerJS) |
+| `/mm` | Maç Ara kuyruğu + host göçü oda kanalı (WebSocket) |
+| `/ice` | STUN + kısa ömürlü TURN kimlikleri |
+| `/stats` | bağlı oyuncu, kuyruk, bugünkü maç / bot doldurma, günün zirvesi |
+| `/` | sağlık kontrolü |
 
-Maç trafiği sunucudan **geçmez** — oyuncular WebRTC ile birbirine doğrudan bağlanır. Bu yüzden ücretsiz/küçük bir sunucu bile binlerce oyuncuya sinyalleşme sağlayabilir.
+## v2'de ne değişti (v1 = GitHub beggame/bedlam-server 2026-08-08: `server.v1.bak.js`)
+- Yalnız aynı protokol sürümü (`pv`) eşleşir — eski sürümler yenilerle eşleşip "eski sürüm" hatası almaz.
+- Mod listeleri kesişmeli; maçın modu sunucuda seçilip herkese gönderilir (eskiden iki oyuncu farklı modda olabiliyordu).
+- Bölge: önce saat dilimi ±2 sa, 4 sn sonra ±5 sa, 8 sn sonra herkes.
+- Host = sunucuya en düşük gecikmeli oyuncu (ws ping).
+- 15 sn rakip yoksa `{t:'bot'}` → oyun sormadan bot maçı başlatır (yalnız `bot:1` gönderen yeni istemciler).
+- Host göçü oda kanalı (`room-join` / `host-migrate` → `host-migrated`) eklendi.
+- `/ice`, `/stats`, isteğe bağlı uyanık kalma.
 
-## Yerelde çalıştırma (test)
+## Ortam değişkenleri (Render → Environment)
+| Değişken | Ne işe yarar |
+|---|---|
+| `CF_TURN_KEY_ID`, `CF_TURN_API_TOKEN` | Cloudflare TURN (ayda 1000 GB ücretsiz). Cloudflare → Realtime → TURN Server → Create |
+| `METERED_ICE_URL` | Alternatif: Metered TURN, `https://APP.metered.live/api/v1/turn/credentials?apiKey=...` |
+| `BOT_FILL_MS` | Bot doldurma süresi, varsayılan 15000 |
+| `KEEP_AWAKE` | `1` → kendi adresine 10 dk'da bir istek, Render ücretsiz plan uyumaz (ayda 750 saat, tek servis 7/24 ≈ 744 saat) |
 
+TURN tanımlı değilse yalnız STUN döner (eski davranış).
+
+## Yerelde test
 ```bash
 npm install
-npm start          # varsayılan port 9000
+PORT=9123 node server.js
 ```
-
-Sağlık kontrolü: `http://localhost:9000/` → `{"ok":true,...}`
-
-## İnternete açma (Render — ücretsiz, önerilen)
-
-1. Bu klasörü bir GitHub deposuna yükle (ya da Render "Deploy from Git" olmadan manuel).
-2. https://render.com → New → **Web Service** → depoyu seç.
-3. Ayarlar: Runtime **Node**, Build Command `npm install`, Start Command `npm start`. Render `PORT` değişkenini kendisi verir, kod bunu okuyor.
-4. Deploy bitince sana bir adres verir: `https://SENIN-SERVISIN.onrender.com`
-
-Alternatifler: Railway, Fly.io, kendi VPS'in (Hetzner vb.) — hepsinde tek gereksinim Node 18+ ve tek açık port.
-
-> Not: Render ücretsiz planında servis 15 dk boşta kalınca uyur, ilk istekte ~30 sn'de uyanır. Test için sorun değil; yayında küçük ücretli plana geçmek gerekir.
-
-## Oyunu sunucuya bağlama
-
-Oyun HTML dosyasında en üstteki ağ bölümünde şu satırı bul:
-
-```js
-const NET_SERVER = (typeof window!=='undefined' && window.__NET_SERVER) || '';
-```
-
-`''` yerine sunucu adresini yaz:
-
-```js
-const NET_SERVER = (typeof window!=='undefined' && window.__NET_SERVER) || 'https://SENIN-SERVISIN.onrender.com';
-```
-
-- Adres doluysa: oda kodu + MAÇ ARA bu sunucudan çalışır.
-- Adres boşsa: oda kodu eski PeerJS bulutuyla çalışmaya devam eder, MAÇ ARA "sunucu ayarlı değil" uyarısı verir.
-
-## Eşleştirme protokolü (istemci ↔ /mm)
-
-```
-istemci → {t:'find', size:2|3|4}    kuyruğa gir
-istemci → {t:'cancel'}              kuyruktan çık
-sunucu  → {t:'queued', size, waiting}
-sunucu  → {t:'match', role:'host'|'guest', code, size, delay}
-```
-
-Eşleşince: host `kadim-arena-<code>` kimliğiyle odayı kurar, misafirler `delay` ms bekleyip aynı koda katılır — sonrası mevcut oda kodu akışının aynısı.
-
-## Sonraki adımlar (yol haritası)
-
-- TURN sunucusu (kısıtlı NAT'lı mobil ağlar için) — adım 4
-- Bölgesel kuyruklar / beceri eşleştirme — yayın sonrası
