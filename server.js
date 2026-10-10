@@ -25,10 +25,10 @@ const app = express();
 app.set('trust proxy', true);
 app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); next(); });
 
-const stats = { day: '', matches: 0, botFills: 0, peakOnline: 0 };
+const stats = { day: '', matches: 0, botFills: 0, peakOnline: 0, iceIssued: 0 };
 function statDay() {
   const d = new Date().toISOString().slice(0, 10);
-  if (stats.day !== d) { stats.day = d; stats.matches = 0; stats.botFills = 0; stats.peakOnline = 0; }
+  if (stats.day !== d) { stats.day = d; stats.matches = 0; stats.botFills = 0; stats.peakOnline = 0; stats.iceIssued = 0; }
 }
 
 app.get('/', (req, res) => res.json({ ok: true, name: 'darmaduman-net', v: 2, uptime: Math.round(process.uptime()) }));
@@ -43,8 +43,17 @@ app.use('/peerjs', peerServer);
 // Mobil ağlarda (CGNAT, simetrik NAT) doğrudan bağlantı kurulamazsa trafik TURN rölesinden geçer.
 // Kimlik bilgileri kısa ömürlüdür; sunucu üretir, istemci açılışta /ice'tan alır.
 const STUN_ONLY = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
-let iceCache = null, iceCacheT = 0, iceSource = 'stun';
-const ICE_CACHE_MS = 6 * 3600 * 1000; // kimlikler 24 saat geçerli, 6 saatte bir yenile
+let iceSource = 'stun';
+// MASRAF KORUMASI (Cloudflare 1000 GB/ay ücretsiz, sonrası ücretli):
+//  - her istemciye KENDİ kimliği, kısa ömürlü (ICE_TTL_S, varsayılan 3 saat) → çalınan kimlik kısa sürede ölür
+//  - aynı IP saatte en çok ICE_IP_PER_HOUR (20) kimlik alır
+//  - günde en çok ICE_DAY_CAP (500) kimlik dağıtılır; dolunca herkes salt STUN alır (oyun yine çalışır)
+//  - TURN_OFF=1 → TURN tamamen kapalı (acil durum anahtarı)
+const ICE_TTL_S = +(process.env.ICE_TTL_S || 10800);
+const ICE_IP_PER_HOUR = +(process.env.ICE_IP_PER_HOUR || 20);
+const ICE_DAY_CAP = +(process.env.ICE_DAY_CAP || 500);
+const ipHits = new Map(); // ip -> [zamanlar]
+let meteredCache = null, meteredT = 0;
 
 function cleanIce(list) {
   // Tarayıcılar 53 numaralı portu engeller → o adresler zaman aşımı yaratır, çıkar
@@ -53,36 +62,86 @@ function cleanIce(list) {
     return urls.length ? { ...s, urls } : null;
   }).filter(Boolean);
 }
-async function fetchIce() {
-  if (process.env.CF_TURN_KEY_ID && process.env.CF_TURN_API_TOKEN) {
+// AYLIK KORUMA: son 30 günün Cloudflare TURN çıkış trafiği (faturalanan egressBytes) TURN_MONTH_CAP_GB'a
+// (varsayılan 800, ücretsiz sınır 1000) ulaşınca TURN kapanır. Kayan 30 gün → fatura dönemi nereden başlarsa başlasın
+// ücretsiz sınır aşılmaz. Okuma için CF_ACCOUNT_ID + CF_ANALYTICS_TOKEN ("Account Analytics: Read" izinli) gerekir.
+// Cloudflare TURN açık ama kullanım 6 saattir okunamıyorsa güvenli tarafta kalınır: TURN kapanır.
+const TURN_MONTH_CAP_GB = +(process.env.TURN_MONTH_CAP_GB || 800);
+const guard = { gb: null, okT: 0, err: '', blocked: false };
+async function checkTurnUsage() {
+  if (!(process.env.CF_TURN_KEY_ID && process.env.CF_TURN_API_TOKEN)) return;
+  if (!(process.env.CF_ACCOUNT_ID && process.env.CF_ANALYTICS_TOKEN)) { guard.err = 'analytics env yok'; guard.blocked = true; return; }
+  try {
+    const to = new Date(), from = new Date(Date.now() - 30 * 86400e3);
+    const q = `query { viewer { accounts(filter: { accountTag: "${process.env.CF_ACCOUNT_ID}" }) {
+      callsTurnUsageAdaptiveGroups(limit: 10000, filter: { date_geq: "${from.toISOString().slice(0, 10)}", date_leq: "${to.toISOString().slice(0, 10)}" }) {
+        sum { egressBytes } } } } }`;
+    const r = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${process.env.CF_ANALYTICS_TOKEN}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: q })
+    });
+    const j = await r.json();
+    if (!r.ok || j.errors && j.errors.length) throw new Error((j.errors && j.errors[0] && j.errors[0].message) || ('http ' + r.status));
+    const acc = (j.data && j.data.viewer && j.data.viewer.accounts || [])[0];
+    if (!acc) throw new Error('hesap bulunamadı');
+    let bytes = 0; for (const g of acc.callsTurnUsageAdaptiveGroups || []) bytes += (g.sum && g.sum.egressBytes) || 0;
+    guard.gb = Math.round(bytes / 1e7) / 100; guard.okT = Date.now(); guard.err = '';
+    guard.blocked = guard.gb >= TURN_MONTH_CAP_GB;
+    if (guard.blocked) console.log(`[ice] 30 günlük TURN kullanımı ${guard.gb} GB ≥ ${TURN_MONTH_CAP_GB} GB → TURN KAPALI`);
+  } catch (e) {
+    guard.err = e.message;
+    if (Date.now() - guard.okT > 6 * 3600e3) guard.blocked = true;
+    console.log('[ice] kullanım okunamadı:', e.message);
+  }
+}
+setInterval(checkTurnUsage, 20 * 60e3); checkTurnUsage();
+function turnMode() {
+  if (process.env.TURN_OFF === '1') return 'stun';
+  if (guard.blocked) return 'stun';
+  if (process.env.CF_TURN_KEY_ID && process.env.CF_TURN_API_TOKEN) return 'cloudflare';
+  if (process.env.METERED_ICE_URL) return 'metered';
+  return 'stun';
+}
+async function fetchIce(mode) {
+  if (mode === 'cloudflare') {
     const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${process.env.CF_TURN_KEY_ID}/credentials/generate-ice-servers`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${process.env.CF_TURN_API_TOKEN}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ttl: 86400 })
+      body: JSON.stringify({ ttl: ICE_TTL_S })
     });
     if (!r.ok) throw new Error('cloudflare ' + r.status);
-    const j = await r.json();
-    iceSource = 'cloudflare';
-    return cleanIce(j.iceServers);
+    return cleanIce((await r.json()).iceServers);
   }
-  if (process.env.METERED_ICE_URL) {
+  if (mode === 'metered') {
+    if (meteredCache && Date.now() - meteredT < 3600e3) return meteredCache;
     const r = await fetch(process.env.METERED_ICE_URL);
     if (!r.ok) throw new Error('metered ' + r.status);
-    iceSource = 'metered';
-    return [...STUN_ONLY, ...cleanIce(await r.json())];
+    meteredCache = [...STUN_ONLY, ...cleanIce(await r.json())]; meteredT = Date.now();
+    return meteredCache;
   }
-  iceSource = 'stun';
   return STUN_ONLY;
 }
-async function getIce() {
-  if (iceCache && Date.now() - iceCacheT < ICE_CACHE_MS) return iceCache;
-  try { iceCache = await fetchIce(); iceCacheT = Date.now(); }
-  catch (e) { console.log('[ice] alınamadı:', e.message); if (!iceCache) return STUN_ONLY; }
-  return iceCache;
+function clientIp(req) { // Render önünde Cloudflare var: bu başlıkları istemci taklit edemez
+  return req.get('cf-connecting-ip') || req.get('true-client-ip') || req.ip || '?';
 }
+function ipAllowed(ip) {
+  const now = Date.now(), arr = (ipHits.get(ip) || []).filter(t => now - t < 3600e3);
+  if (arr.length >= ICE_IP_PER_HOUR) { ipHits.set(ip, arr); return false; }
+  arr.push(now); ipHits.set(ip, arr); return true;
+}
+setInterval(() => { const now = Date.now(); for (const [ip, arr] of ipHits) if (!arr.some(t => now - t < 3600e3)) ipHits.delete(ip); }, 600e3);
 app.get('/ice', async (req, res) => {
   res.set('Cache-Control', 'no-store');
-  res.json({ iceServers: await getIce(), src: iceSource, ttl: 86400 });
+  statDay();
+  let mode = turnMode(), why = '';
+  if (mode !== 'stun' && stats.iceIssued >= ICE_DAY_CAP) { mode = 'stun'; why = 'daycap'; }
+  if (mode !== 'stun' && !ipAllowed(clientIp(req))) { mode = 'stun'; why = 'iplimit'; }
+  let list = STUN_ONLY;
+  try { list = await fetchIce(mode); if (mode !== 'stun') stats.iceIssued++; }
+  catch (e) { console.log('[ice] alınamadı:', e.message); mode = 'stun'; why = 'error'; }
+  iceSource = mode;
+  res.json({ iceServers: list, src: mode, why, ttl: ICE_TTL_S });
 });
 
 // ---- 3) Maç Ara eşleştirme kuyruğu ----------------------------------------
@@ -250,7 +309,7 @@ app.get('/stats', (req, res) => {
   res.json({
     online: wss.clients.size, queue: queue.length, rooms: rooms.size,
     today: stats.day, matches: stats.matches, botFills: stats.botFills, peakOnline: stats.peakOnline,
-    ice: iceSource, uptime: Math.round(process.uptime())
+    ice: turnMode(), iceIssued: stats.iceIssued, iceDayCap: ICE_DAY_CAP, turn30dGB: guard.gb, turnCapGB: TURN_MONTH_CAP_GB, turnBlocked: guard.blocked, guardErr: guard.err, uptime: Math.round(process.uptime())
   });
 });
 
@@ -261,5 +320,4 @@ if (process.env.KEEP_AWAKE === '1' && process.env.RENDER_EXTERNAL_URL) {
   setInterval(() => { fetch(process.env.RENDER_EXTERNAL_URL + '/?keep=1').catch(() => {}); }, 10 * 60 * 1000);
 }
 
-getIce(); // açılışta TURN kimliklerini hazırla
 server.listen(PORT, '0.0.0.0', () => console.log(`darmaduman-net v2 hazır → :${PORT} (/peerjs, /mm, /ice, /stats)`));
