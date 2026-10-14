@@ -21,6 +21,7 @@ const { WebSocketServer } = require('ws');
 
 const PORT = process.env.PORT || 9000;
 const BOT_FILL_MS = +(process.env.BOT_FILL_MS || 15000);
+const MIN_PV = Number(process.env.MIN_PV) || 315; // en dusuk desteklenen ag protokol surumu (istemci NET_PV); altindakiler cevrimici oynayamaz -> GUNCELLE
 const app = express();
 app.set('trust proxy', true);
 app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); next(); });
@@ -31,7 +32,8 @@ function statDay() {
   if (stats.day !== d) { stats.day = d; stats.matches = 0; stats.botFills = 0; stats.peakOnline = 0; stats.iceIssued = 0; }
 }
 
-app.get('/', (req, res) => res.json({ ok: true, name: 'darmaduman-net', v: 2, uptime: Math.round(process.uptime()) }));
+app.get('/', (req, res) => res.json({ ok: true, name: 'darmaduman-net', v: 2, minPv: MIN_PV, uptime: Math.round(process.uptime()) }));
+app.get('/surum', (req, res) => { res.set('Cache-Control', 'no-store'); res.json({ minPv: MIN_PV }); });
 
 const server = http.createServer(app);
 
@@ -151,6 +153,8 @@ app.get('/ice', async (req, res) => {
 //   sunucu  → {t:'queued', size, waiting}
 //   sunucu  → {t:'match', role:'host'|'guest', code, size, mode, delay}
 //   sunucu  → {t:'bot'}   BOT_FILL_MS dolup rakip bulunamadı (yalnız bot:1 diyenlere)
+//   sunucu  → {t:'guncelle', minPv}   istemci surumu MIN_PV altinda (kuyruga alinmaz)
+//   GET /surum → {minPv}
 // Eşleşme kuralları:
 //   - aynı ağ protokol sürümü (pv) ve aynı kişi sayısı
 //   - mod listeleri kesişmeli; maçın modu kesişimden seçilir ve herkese gönderilir
@@ -266,6 +270,7 @@ wss.on('connection', ws => {
     let d; try { d = JSON.parse(raw); } catch (e) { return; }
     if (typeof d.code === 'string') d.code = d.code.toUpperCase().slice(0, 8); // canlı v1 ile aynı: kod büyük harf
     if (d.t === 'find') {
+      if ((d.pv | 0) < MIN_PV) { send(ws, { t: 'guncelle', minPv: MIN_PV }); return; }
       dropFromQueue(ws);
       queue.push({
         ws,

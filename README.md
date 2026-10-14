@@ -37,6 +37,12 @@ TURN tanımlı değilse yalnız STUN döner (eski davranış).
 
 **Masraf koruması:** Cloudflare TURN sonradan ödemelidir ve panelde harcama tavanı yoktur. Bu yüzden sunucu son 30 günün faturalanan çıkış trafiğini 20 dk'da bir okur, 800 GB'a ulaşınca TURN'ü kapatır (kayan 30 gün → fatura dönemi nereden başlarsa başlasın 1000 GB aşılmaz). Kullanım 6 saattir okunamıyorsa da kapatır. Her oyuncuya kendi 3 saatlik kimliği verilir, IP ve günlük sınır vardır. `/stats` → `turn30dGB`, `turnBlocked`. Acil durdurma: `TURN_OFF=1` ya da Cloudflare'de TURN anahtarını silmek.
 
+## Zorunlu güncelleme (MIN_PV)
+- Ortam değişkeni `MIN_PV` (varsayılan 315): en düşük desteklenen ağ protokol sürümü (istemci `NET_PV`).
+- Bu sürümün altındaki istemciler `find` gönderince kuyruğa alınmaz, `{t:'guncelle', minPv}` alır → oyun "GÜNCELLE" uyarısı verir.
+- `MIN_PV` değerini yalnızca yeni sürüm %100 dağıtıma ulaştıktan sonra yükseltin.
+- `GET /surum` → `{minPv}` (istemci açılışta okuyabilir); `/` yanıtında da `minPv` vardır.
+
 ## Yerelde test
 ```bash
 npm install
