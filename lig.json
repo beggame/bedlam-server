@@ -1,0 +1,19 @@
+{
+ "_aciklama": "Faz 7.6 dereceli lig (godot/LIG.md). Puan ve sıra SUNUCUDA hesaplanır (sunucu/g_lig.js; kopyası sunucu/lig.json). Ödüller yalnız kozmetik (lig plakaları, kural 'lig' = yalnız sunucu verir).",
+ "surum": 1,
+ "sezon": { "id": "S1", "baslangic": "2026-11-01", "bitis": "2026-12-31", "sifirlama": 0.5 },
+ "puan": { "baslangic": 1000, "kGecici": 48, "kNormal": 32, "geciciMac": 10, "taban": 0, "dusmeKorumasi": 25 },
+ "ligler": [
+  { "id": "bronz", "ad": "BRONZ", "esik": 0, "renk": "#c07a3a" },
+  { "id": "gumus", "ad": "GÜMÜŞ", "esik": 1100, "renk": "#c9d1d9" },
+  { "id": "altin", "ad": "ALTIN", "esik": 1250, "renk": "#ffd23f" },
+  { "id": "elmas", "ad": "ELMAS", "esik": 1400, "renk": "#7fe3ff" },
+  { "id": "usta", "ad": "USTA", "esik": 1550, "renk": "#c77dff" },
+  { "id": "efsane", "ad": "EFSANE", "esik": 1700, "renk": "#ff5a5a" }
+ ],
+ "odul": { "bronz": ["plaka_lig_bronz"], "gumus": ["plaka_lig_gumus"], "altin": ["plaka_lig_altin"], "elmas": ["plaka_lig_elmas"], "usta": ["plaka_lig_usta"], "efsane": ["plaka_lig_efsane"] },
+ "eslesme": { "pencere": 100, "genisleme": 50, "genislemeSn": 5, "enFazla": 400, "ayniCiftGunluk": 3 },
+ "ceza": { "kopmaDk": [0, 5, 15, 60], "kopmaPencereSaat": 24 },
+ "sart": { "mac": 20, "play": true },
+ "sonucBeklemeSn": 30
+}

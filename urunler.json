@@ -1,0 +1,38 @@
+{
+ "_aciklama": "Faz 7 ürün kataloğu (tek kaynak). Kimlikler Play Console › Ürünler ile birebir aynı olmalı (KULLANICI-YAPACAK.md). Fiyat Play'den okunur; yedekFiyat yalnız Play yanıt vermezse gösterilir (boşsa düğmede fiyat yazmaz). sunucu/urunler.json bunun kopyasıdır (arac/urunler_kopyala.js).",
+ "surum": 1,
+ "paket": [
+  "com.beg.bedlam.godot",
+  "com.beg.bedlam"
+ ],
+ "urunler": [
+  {
+   "id": "reklamsiz",
+   "tur": "kalici",
+   "hak": "reklamsiz",
+   "ad": "REKLAMLARI KALDIR",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "gem_80",
+   "tur": "tuketilir",
+   "gem": 80,
+   "ad": "80 GEM",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "gem_500",
+   "tur": "tuketilir",
+   "gem": 500,
+   "ad": "500 GEM",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "ilk_paket",
+   "tur": "tuketilir",
+   "gem": 300,
+   "ad": "İLK PAKET",
+   "yedekFiyat": ""
+  }
+ ]
+}

@@ -103,9 +103,15 @@ function turnMode() {
   if (guard.blocked) return 'stun';
   if (process.env.CF_TURN_KEY_ID && process.env.CF_TURN_API_TOKEN) return 'cloudflare';
   if (process.env.METERED_ICE_URL) return 'metered';
+  if (process.env.ICE_YONLENDIR) return 'yonlendir';   // yalnız yerel test (godot/arac/ag_canli_test.ps1 -Asama B): TURN anahtarı yokken canlı sunucunun /ice ucu
   return 'stun';
 }
 async function fetchIce(mode) {
+  if (mode === 'yonlendir') {
+    const r = await fetch(process.env.ICE_YONLENDIR);
+    if (!r.ok) throw new Error('yonlendir ' + r.status);
+    return cleanIce((await r.json()).iceServers);
+  }
   if (mode === 'cloudflare') {
     const r = await fetch(`https://rtc.live.cloudflare.com/v1/turn/keys/${process.env.CF_TURN_KEY_ID}/credentials/generate-ice-servers`, {
       method: 'POST',
@@ -249,6 +255,7 @@ server.removeAllListeners('upgrade');
 server.on('upgrade', (req, socket, head) => {
   const url = (req.url || '').split('?')[0];
   if (url === '/mm') wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
+  else if (url === '/g/sig') gwss.handleUpgrade(req, socket, head, ws => gwss.emit('connection', ws, req));
   else for (const fn of peerUpgradeListeners) fn.call(server, req, socket, head);
 });
 
@@ -308,10 +315,212 @@ wss.on('connection', ws => {
   ws.on('error', bye);
 });
 
+// ---- 6) Godot istemcisi: /g/sig (godot/AG.md §4–§5) --------------------------------------------
+// Web istemcisinden AYRI havuz (farklı protokol/sürüm; birbirleriyle eşleşmezler). Rollback'te host yok:
+// sunucu yalnız odayı kurar, sdp/ice mesajlarını röleler, tohum/harita/kadro dağıtır.
+//   → {t:'hello', pv, kimlik, ad, karakter, engel?:[etiket]}   ← {t:'ok', id} | {t:'guncelle', minPv}
+//      pv 2 (Faz 7 K1/K3): kimlik = oyuncu etiketi (rakibe kadroda gider), engel = engellenen etiketler (kuyruk ve oda bunlarla eşleştirmez)
+//   → {t:'cumle', id}                    ← odadaki diğerine {t:'cumle', kimden, id} (hazır cümle; yalnız 0..19, 3 sn'de 1)
+//   → {t:'oda_kur'}                      ← {t:'oda', kod}
+//   → {t:'katil', kod}                   ← {t:'oda', kod}; odadaki herkese {t:'esles', oyuncu, tohum, harita, kadro, tur:'oda', kurucu}
+//      pv 4: özel oda 2–4 kişi (OZEL_KAPASITE). Her katılımda herkese güncel kadro gider (oyuncu = katılış sırası); istemciler
+//      tam ağ kurar (sırası küçük olan teklif yapar). Maçı kurucu başlatır: {t:'kilit', oyunda:1|0} (oyundayken katılım 'oyunda' hatası).
+//      Kurucu dışında biri çıkarsa oda açık kalır ({t:'ayrildi', kimden, acik:true}); kurucu çıkarsa oda kapanır (acik:false, kapandi:true).
+//   → {t:'ara', bot:1, bolge, rtt}       ← {t:'kuyruk', bekleyen} | {t:'esles', ..., tur:'ara'} | {t:'bot'}
+//   → {t:'sdp'|'ice'|'yeniden', kime?, ...}   ← aynı mesaj kime'ye (yoksa odadaki diğerlerine) {kimden} ile; 'yeniden': kopan eş bağlantısını kurmasını ister
+//   → {t:'yol', yol:'host'|'srflx'|'relay', rtt}   istatistik
+//   → {t:'iptal'} / {t:'ayril'}          ← karşıya {t:'ayrildi', kimden}
+//   pv 5 SİNYAL DEVAMI: 'ok' yanıtı {jeton} taşır. Odadaki üyenin soketi kapanınca (telefonda Wi-Fi kapandı / Wi-Fi↔mobil geçişi) hemen ayrılmış
+//   sayılmaz: G_ASKI_MS (15 sn; istemcinin 12 sn eş kararından uzun) askıda, yuvası durur. Yeni soket → {t:'devam', jeton, pv} ← {t:'devam_ok', id, kod}
+//   (kimlik ve yuva devredilir; eski soket sunucuda hâlâ açık görünse de) | {t:'devam_yok'} (süre doldu / jeton yok). Süre dolarsa eski akış (ayrildi).
+//   POST /g/desync {pv, harita, tik, hashBiz, hashO}   (yalnız özet; sayaç)
+const MIN_PV_GODOT = Number(process.env.MIN_PV_GODOT) || 5;   // 5: rövanş paketi + sim içi DURDUR + kopma toparlanması (eşler arası; sunucu aynı); 4: özel oda 2–4 kişi + takım (tam ağ, kime yönlendirme, kilit); 3: özel odada maç ayarı BASLA paketinde (ev sahibi harita/mod/can/süre); 2: Faz 7 K1 el sıkışma kartı + emote (godot/AG.md §10); altı → güncelle ekranı
+const G_BOT_FILL_MS = +(process.env.G_BOT_FILL_MS || 15000);
+const OZEL_KAPASITE = 4;   // pv 4: kodla kurulan oda en çok 4 insan (botlar istemcide, sim içinde)
+const G_HARITALAR = ['aztek', 'saray', 'lab', 'pagoda', 'uzay', 'kasaba', 'seker', 'yanardag', 'dolap', 'lotus']; // Godot Faz 4: 10 harita (istemci veri/haritalar/*.json ile aynı adlar)
+const gwss = new WebSocketServer({ noServer: true, maxPayload: 16384 });
+let gKuyruk = [];            // {ws, bolge, rtt, bot, t0}
+const gOdalar = new Map();   // kod -> {kod, uyeler:[ws], tohum, harita, basladi}
+const gStats = { eslesme: 0, bot: 0, yol: { host: 0, srflx: 0, relay: 0, prflx: 0 }, desync: 0 };
+let gId = 1;
+const G_ASKI_MS = +(process.env.G_ASKI_MS || 15000);
+const gJeton = new Map();   // devam jetonu → üye soketi (canlı ya da askıda)
+function gYeniJeton() { let j = ''; for (let i = 0; i < 24; i++) j += MM_ALPHABET[Math.floor(Math.random() * MM_ALPHABET.length)]; return j; }
+/** pv 5: eski üyenin kimliğini, odasını ve jetonunu yeni sokete devret (askıdaki ya da hâlâ açık görünen eski soket). */
+function gDevret(eski, yeni) {
+  for (const k of ['_gid', '_ad', '_kimlik', '_karakter', '_engel', '_pv', '_jeton']) yeni[k] = eski[k];
+  yeni._hello = true; yeni._goda = eski._goda; eski._goda = null; eski._devredildi = true;
+  if (eski._askiT) { clearTimeout(eski._askiT); eski._askiT = null; }
+  const oda = yeni._goda; if (oda) { const i = oda.uyeler.indexOf(eski); if (i >= 0) oda.uyeler[i] = yeni; }
+  gJeton.set(yeni._jeton, yeni);
+  try { if (eski.readyState === 1) eski.terminate(); } catch (e) {}
+}
+
+function gSend(ws, o) { try { if (ws.readyState === 1) ws.send(JSON.stringify(o)); } catch (e) {} }
+function gTohum() { return Math.floor(Math.random() * 0x7fffffff) * 2 + Math.floor(Math.random() * 2); }
+function gKadro(uyeler) { return uyeler.map(w => ({ id: w._gid, ad: w._ad, karakter: w._karakter || 'kivilcim', etiket: w._kimlik || '' })); }
+// Faz 7 K3: iki taraftan biri diğerini engellediyse eşleşmez; farklı pv hiç eşleşmez (AG.md §10 sürüm kuralı)
+function gEngelli(a, b) { return (!!b._kimlik && a._engel && a._engel.has(b._kimlik)) || (!!a._kimlik && b._engel && b._engel.has(a._kimlik)); }
+function gUyumlu(a, b) { return a._pv === b._pv && !gEngelli(a, b); }
+function gBaslat(oda, tur, ek = {}) {
+  oda.basladi = true; oda.tohum = gTohum(); oda.harita = G_HARITALAR[Math.floor(Math.random() * G_HARITALAR.length)];
+  oda.uyeler.forEach((w, i) => gSend(w, { t: 'esles', oyuncu: i, kod: oda.kod, tohum: oda.tohum, harita: oda.harita, kadro: gKadro(oda.uyeler), tur, ...ek }));
+  statDay(); stats.matches++; gStats.eslesme++;
+  console.log(`[g] eşleşme ${tur}: oda ${oda.kod}, rtt ${oda.uyeler.map(w => w._rtt ?? '?').join('/')}`);
+}
+function gOdadanCik(ws) {
+  const oda = ws._goda; if (!oda) return;
+  const kurucuydu = oda.uyeler[0] === ws;
+  oda.uyeler = oda.uyeler.filter(w => w !== ws); ws._goda = null;
+  if (oda.ozel) {
+    // pv 4 özel oda: kurucu dışında biri çıkarsa oda açık kalır (maçtaysa kalanlar onu eler, maç sürer; lobideyse yuvası boşalır).
+    // Kurucu çıkarsa oda kapanır: kalanlar maçtaysa maçı bitirir, sonra menüye döner.
+    if (kurucuydu) {
+      for (const w of oda.uyeler) { gSend(w, { t: 'ayrildi', kimden: ws._gid, acik: false, kapandi: true }); w._goda = null; }
+      oda.uyeler = []; gOdalar.delete(oda.kod); return;
+    }
+    if (oda.uyeler.length === 1) oda.basladi = false;   /* kurucu tek kaldı: kilit açılır */
+    for (const w of oda.uyeler) gSend(w, { t: 'ayrildi', kimden: ws._gid, acik: true });
+    if (!oda.uyeler.length) gOdalar.delete(oda.kod);
+    return;
+  }
+  for (const w of oda.uyeler) gSend(w, { t: 'ayrildi', kimden: ws._gid, acik: false });
+  if (!oda.uyeler.length) gOdalar.delete(oda.kod);
+}
+/** Özel oda kadrosu herkese (her katılımda): istemci yeni eşlere bağlanır, kurucu yuvaları günceller. */
+function gOdaKadro(oda) {
+  oda.uyeler.forEach((w, i) => gSend(w, { t: 'esles', oyuncu: i, kod: oda.kod, tohum: oda.tohum, harita: oda.harita, kadro: gKadro(oda.uyeler), tur: 'oda', kurucu: oda.uyeler[0]._gid }));
+}
+function gKuyruktanCik(ws) { const n = gKuyruk.length; gKuyruk = gKuyruk.filter(e => e.ws !== ws); return gKuyruk.length !== n; }
+function gKuyrukYayin() { for (const e of gKuyruk) gSend(e.ws, { t: 'kuyruk', bekleyen: gKuyruk.length }); }
+function gEslestir() {
+  const now = Date.now();
+  let degisti = false;
+  for (let i = 0; i < gKuyruk.length; i++) {
+    const a = gKuyruk[i];
+    const cands = gKuyruk.filter(b => b !== a && gUyumlu(a.ws, b.ws)).sort((x, y) => Math.abs(x.bolge - a.bolge) - Math.abs(y.bolge - a.bolge));
+    const b = cands.find(c => Math.abs(c.bolge - a.bolge) <= tzWindow(now - Math.min(a.t0, c.t0)));
+    if (!b) continue;
+    gKuyruk = gKuyruk.filter(e => e !== a && e !== b);
+    const kod = makeCode();
+    const oda = { kod, uyeler: [a.ws, b.ws], basladi: false };
+    gOdalar.set(kod, oda); a.ws._goda = oda; b.ws._goda = oda;
+    gBaslat(oda, 'ara');
+    degisti = true; i = -1;
+  }
+  for (const e of gKuyruk.slice()) {
+    if (e.bot && now - e.t0 >= G_BOT_FILL_MS) { gSend(e.ws, { t: 'bot' }); gKuyruktanCik(e.ws); statDay(); stats.botFills++; gStats.bot++; degisti = true; }
+  }
+  if (degisti) gKuyrukYayin();
+}
+setInterval(gEslestir, 1000);
+// Faz 7.6 dereceli lig (K2): ayrı kuyruk, puan/sonuç sunucuda (g_lig.js)
+const gLig = require('./g_lig').kur(app, { gonder: gSend, uyumlu: gUyumlu, odaBaslat: (a, b, ek) => { const kod = makeCode(); const oda = { kod, uyeler: [a, b], basladi: false }; gOdalar.set(kod, oda); a._goda = oda; b._goda = oda; gBaslat(oda, 'dereceli', ek); } });
+
+gwss.on('connection', ws => {
+  ws._gid = gId++; ws._ad = 'Oyuncu'; ws._goda = null; ws._hello = false;
+  ws.on('pong', () => { const r = Date.now() - ws._pingT; ws._rtt = ws._rtt == null ? r : Math.round(ws._rtt * 0.5 + r * 0.5); });
+  measureRtt(ws); ws._rttT = setInterval(() => measureRtt(ws), 3000);
+  statDay(); stats.peakOnline = Math.max(stats.peakOnline, wss.clients.size + gwss.clients.size);
+  ws.on('message', raw => {
+    let d; try { d = JSON.parse(raw); } catch (e) { return; }
+    if (d.t === 'hello') {
+      if ((d.pv | 0) < MIN_PV_GODOT) { gSend(ws, { t: 'guncelle', minPv: MIN_PV_GODOT }); return; }
+      ws._hello = true; ws._pv = d.pv | 0;
+      ws._ad = String(d.ad || 'Oyuncu').slice(0, 16); ws._kimlik = /^[A-Z0-9]{3,12}$/.test(String(d.kimlik || '')) ? String(d.kimlik) : ''; ws._karakter = String(d.karakter || 'kivilcim').slice(0, 24);
+      ws._engel = new Set((Array.isArray(d.engel) ? d.engel : []).slice(0, 200).map(String).filter(x => /^[A-Z0-9]{3,12}$/.test(x)));
+      ws._jeton = gYeniJeton(); gJeton.set(ws._jeton, ws);
+      gSend(ws, { t: 'ok', id: ws._gid, minPv: MIN_PV_GODOT, jeton: ws._jeton });
+      return;
+    }
+    if (d.t === 'devam') {
+      const eski = gJeton.get(String(d.jeton || ''));
+      if ((d.pv | 0) < MIN_PV_GODOT || !eski || eski === ws || !eski._goda) { gSend(ws, { t: 'devam_yok' }); return; }
+      gDevret(eski, ws); gStats.devam = (gStats.devam || 0) + 1;
+      console.log(`[g] devam: üye ${ws._gid} oda ${ws._goda.kod}`);
+      gSend(ws, { t: 'devam_ok', id: ws._gid, kod: ws._goda.kod });
+      return;
+    }
+    if (!ws._hello) { gSend(ws, { t: 'hata', neden: 'hello yok' }); return; }
+    if (typeof d.kod === 'string') d.kod = d.kod.toUpperCase().slice(0, 8);
+    if (d.t === 'oda_kur') {
+      gKuyruktanCik(ws); gOdadanCik(ws);
+      const kod = makeCode(); const oda = { kod, uyeler: [ws], basladi: false, ozel: true, tohum: gTohum(), harita: G_HARITALAR[Math.floor(Math.random() * G_HARITALAR.length)] };   /* ozel: kodla kurulan oda (2–4 kişi; tohum/harita yalnız varsayılan, maç ayarını kurucu BASLA ile verir) */
+      gOdalar.set(kod, oda); ws._goda = oda;
+      gSend(ws, { t: 'oda', kod, oyuncu: 0 });
+    } else if (d.t === 'katil') {
+      const oda = gOdalar.get(d.kod || '');
+      if (oda && oda.uyeler.includes(ws)) return;
+      if (!oda || oda.basladi || oda.uyeler.length >= (oda.ozel ? OZEL_KAPASITE : 2)) { gSend(ws, { t: 'hata', neden: !oda ? 'oda yok' : oda.basladi ? 'oyunda' : 'oda dolu' }); return; }
+      if (oda.uyeler.some(w => !gUyumlu(w, ws))) { gSend(ws, { t: 'hata', neden: oda.uyeler.some(w => w._pv !== ws._pv) ? 'surum' : 'engel' }); return; }
+      gKuyruktanCik(ws); gOdadanCik(ws);
+      oda.uyeler.push(ws); ws._goda = oda;
+      gSend(ws, { t: 'oda', kod: oda.kod, oyuncu: oda.uyeler.length - 1 });
+      statDay(); stats.matches++; gStats.eslesme++;
+      console.log(`[g] oda ${oda.kod} katılım: ${oda.uyeler.length} kişi`);
+      gOdaKadro(oda);
+    } else if (d.t === 'kilit') {
+      const oda = ws._goda; if (!oda || !oda.ozel || oda.uyeler[0] !== ws) return;   /* yalnız kurucu */
+      oda.basladi = !!d.oyunda;
+    } else if (d.t === 'ara' && d.dereceli) {
+      gKuyruktanCik(ws); gOdadanCik(ws); gLig.araIstek(ws, d);
+    } else if (d.t === 'ara') {
+      gKuyruktanCik(ws); gOdadanCik(ws); gLig.cik(ws);
+      gKuyruk.push({ ws, bolge: Number.isFinite(+d.bolge) ? Math.max(-12, Math.min(14, +d.bolge)) : 0, rtt: +d.rtt || ws._rtt || 999, bot: !!d.bot, t0: Date.now() });
+      gKuyrukYayin(); gEslestir();
+    } else if (d.t === 'iptal') {
+      if (gKuyruktanCik(ws)) gKuyrukYayin(); gLig.cik(ws);
+      gSend(ws, { t: 'iptal_ok' });
+    } else if (d.t === 'sdp' || d.t === 'ice' || d.t === 'yeniden') {
+      const oda = ws._goda; if (!oda) return;
+      const kime = d.kime == null ? null : d.kime | 0;
+      for (const w of oda.uyeler) if (w !== ws && (kime == null || w._gid === kime)) gSend(w, { ...d, kimden: ws._gid });
+    } else if (d.t === 'yol') {
+      const y = String(d.yol || ''); if (y in gStats.yol) gStats.yol[y]++;
+      console.log(`[g] yol ${y} rtt ${d.rtt | 0} ms (oda ${ws._goda ? ws._goda.kod : '-'})`);
+    } else if (d.t === 'cumle') {
+      const oda = ws._goda, id = d.id | 0; if (!oda || id < 0 || id > 19) return;
+      const t = Date.now(); if (ws._cumleT && t - ws._cumleT < 3000) return; ws._cumleT = t;
+      for (const w of oda.uyeler) if (w !== ws) gSend(w, { t: 'cumle', kimden: ws._gid, id });
+    } else if (d.t === 'ayril') {
+      gOdadanCik(ws);   /* açık çıkış: askı yok (bye'da _goda boş) */
+    } else if (d.t === 'ping') {
+      gSend(ws, { t: 'pong', z: d.z });
+    }
+  });
+  const bye = () => {
+    if (ws._bitti) return; ws._bitti = true;   /* error + close iki kez çağırır */
+    clearInterval(ws._rttT); if (gKuyruktanCik(ws)) gKuyrukYayin();
+    if (ws._devredildi) return;   /* kimliği yeni sokete geçti */
+    if (ws._goda && ws._jeton) {   /* pv 5: odadaki üye askıya (yuvası durur); süre dolarsa ayrılır */
+      console.log(`[g] askida: üye ${ws._gid} oda ${ws._goda.kod}`);
+      ws._askiT = setTimeout(() => { ws._askiT = null; if (ws._devredildi) return; gJeton.delete(ws._jeton); gLig.kopma(ws); gOdadanCik(ws); }, G_ASKI_MS);
+      return;
+    }
+    if (ws._jeton) gJeton.delete(ws._jeton);
+    gLig.kopma(ws); gOdadanCik(ws);
+  };
+  ws.on('close', bye); ws.on('error', bye);
+});
+app.use('/g/desync', express.json({ limit: '4kb' }));
+app.post('/g/desync', (req, res) => {
+  const d = req.body || {};
+  gStats.desync++;
+  console.log(`[g] DESYNC pv ${d.pv} harita ${d.harita} tik ${d.tik} ${d.hashBiz} ≠ ${d.hashO}`);
+  res.json({ ok: true });
+});
+app.get('/g/surum', (req, res) => { res.set('Cache-Control', 'no-store'); res.json({ minPv: MIN_PV_GODOT, haritalar: G_HARITALAR }); });
+// Faz 7 mağaza uçları (/g/satin v1 …): g_magaza.js
+const gMagaza = require('./g_magaza').kur(app);
+const gHesap = require('./g_hesap').kur(app);   // Faz 7.5 /g/ayar + hesap silme işi
+const gCuzdan = require('./g_cuzdan').kur(app);   // Faz 7.7 gem cüzdanı (/g/cuzdan v1)
+const gSosyal = require('./g_sosyal').kur(app);   // Faz 7.8 /g/rapor v1
+
 app.get('/stats', (req, res) => {
   statDay();
   res.set('Cache-Control', 'no-store');
   res.json({
+    godot: { online: gwss.clients.size, kuyruk: gKuyruk.length, odalar: gOdalar.size, ...gStats, minPv: MIN_PV_GODOT, magaza: gMagaza.istat, hesap: gHesap.istat, cuzdan: gCuzdan.istat, sosyal: gSosyal.istat, lig: gLig.istat },
     online: wss.clients.size, queue: queue.length, rooms: rooms.size,
     today: stats.day, matches: stats.matches, botFills: stats.botFills, peakOnline: stats.peakOnline,
     ice: turnMode(), iceIssued: stats.iceIssued, iceDayCap: ICE_DAY_CAP, turn30dGB: guard.gb, turnCapGB: TURN_MONTH_CAP_GB, turnBlocked: guard.blocked, guardErr: guard.err, uptime: Math.round(process.uptime())

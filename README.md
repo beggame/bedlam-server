@@ -9,6 +9,8 @@ Tek Node.js süreci, tek port. Maç trafiği sunucudan **geçmez** (WebRTC, gere
 | `/ice` | STUN + kısa ömürlü TURN kimlikleri |
 | `/stats` | bağlı oyuncu, kuyruk, bugünkü maç / bot doldurma, günün zirvesi |
 | `/` | sağlık kontrolü |
+| `/g/sig` | **Godot istemcisi** (WebSocket): hello/pv, oda kur/katıl, eşleştirme (bölge+RTT), SDP/ICE rölesi, yol istatistiği — rollback için host yok (godot/AG.md) |
+| `/g/desync`, `/g/surum` | Godot desync özeti (POST), en düşük Godot protokol sürümü (`MIN_PV_GODOT`, varsayılan 1) |
 
 ## v2'de ne değişti (v1 = GitHub beggame/bedlam-server 2026-08-08: `server.v1.bak.js`)
 - Yalnız aynı protokol sürümü (`pv`) eşleşir — eski sürümler yenilerle eşleşip "eski sürüm" hatası almaz.
@@ -47,4 +49,5 @@ TURN tanımlı değilse yalnız STUN döner (eski davranış).
 ```bash
 npm install
 PORT=9123 node server.js
+node test_g.js 9123   # /g/sig protokol testi (12 kontrol)
 ```
