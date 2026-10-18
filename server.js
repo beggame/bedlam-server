@@ -344,6 +344,9 @@ const gOdalar = new Map();   // kod -> {kod, uyeler:[ws], tohum, harita, basladi
 const gStats = { eslesme: 0, bot: 0, yol: { host: 0, srflx: 0, relay: 0, prflx: 0 }, desync: 0 };
 let gId = 1;
 const G_ASKI_MS = +(process.env.G_ASKI_MS || 15000);
+// Sessiz ölen soket (rakibin uygulaması dondu / ağı TCP kapanmadan gitti): maçtaki pv 5 istemci 2 sn'de bir ping atar. Başlamış odadaki üyeden
+// G_SESSIZ_MS mesaj gelmezse soketi kapatılır → olağan askı (G_ASKI_MS) → ayrildi: kalan oyuncu maçı kazanır (eskiden kimse bilmezdi, iki taraf da "Rakipten haber yok").
+const G_SESSIZ_MS = +(process.env.G_SESSIZ_MS || 8000);
 const gJeton = new Map();   // devam jetonu → üye soketi (canlı ya da askıda)
 function gYeniJeton() { let j = ''; for (let i = 0; i < 24; i++) j += MM_ALPHABET[Math.floor(Math.random() * MM_ALPHABET.length)]; return j; }
 /** pv 5: eski üyenin kimliğini, odasını ve jetonunu yeni sokete devret (askıdaki ya da hâlâ açık görünen eski soket). */
@@ -414,15 +417,20 @@ function gEslestir() {
   if (degisti) gKuyrukYayin();
 }
 setInterval(gEslestir, 1000);
+setInterval(() => {   /* yalnız başlamış, başka üyesi olan odada ve jetonlu (pv 5, nabız atan) üyede: lobide arka plana alınan uygulama ya da rakibi gitmiş tek kalan (artık nabız atmaz) atılmaz */
+  const t = Date.now();
+  for (const ws of gwss.clients) if (ws._goda && ws._goda.basladi && ws._goda.uyeler.length > 1 && ws._jeton && !ws._bitti && t - ws._sonT > G_SESSIZ_MS) { console.log(`[g] sessiz soket (${t - ws._sonT} ms): üye ${ws._gid} oda ${ws._goda.kod}`); ws.terminate(); }
+}, 1000);
 // Faz 7.6 dereceli lig (K2): ayrı kuyruk, puan/sonuç sunucuda (g_lig.js)
 const gLig = require('./g_lig').kur(app, { gonder: gSend, uyumlu: gUyumlu, odaBaslat: (a, b, ek) => { const kod = makeCode(); const oda = { kod, uyeler: [a, b], basladi: false }; gOdalar.set(kod, oda); a._goda = oda; b._goda = oda; gBaslat(oda, 'dereceli', ek); } });
 
 gwss.on('connection', ws => {
-  ws._gid = gId++; ws._ad = 'Oyuncu'; ws._goda = null; ws._hello = false;
+  ws._gid = gId++; ws._ad = 'Oyuncu'; ws._goda = null; ws._hello = false; ws._sonT = Date.now();
   ws.on('pong', () => { const r = Date.now() - ws._pingT; ws._rtt = ws._rtt == null ? r : Math.round(ws._rtt * 0.5 + r * 0.5); });
   measureRtt(ws); ws._rttT = setInterval(() => measureRtt(ws), 3000);
   statDay(); stats.peakOnline = Math.max(stats.peakOnline, wss.clients.size + gwss.clients.size);
   ws.on('message', raw => {
+    ws._sonT = Date.now();
     let d; try { d = JSON.parse(raw); } catch (e) { return; }
     if (d.t === 'hello') {
       if ((d.pv | 0) < MIN_PV_GODOT) { gSend(ws, { t: 'guncelle', minPv: MIN_PV_GODOT }); return; }
