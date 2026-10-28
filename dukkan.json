@@ -1,172 +1,201 @@
 {
- "_aciklama": "Faz 7.7 dükkân ve ekonomi (godot/EKONOMI.md). coin: oynayarak (yerel profil); gem: gerçek para test ürünü + nadir ödül, bakiye SUNUCUDA (sunucu/g_cuzdan.js; bu dosyanın kopyası sunucu/dukkan.json). Güç veren ürün yok, rastgele kutu yok.",
+ "_aciklama": "Faz 7.7 dükkân ve ekonomi (godot/EKONOMI.md). coin: oynayarak (yerel profil) ve dükkândaki ödüllü reklamdan (reklamOdul: reklam başına coin, günde en çok gunluk kez; kozmetik/gem vermez); gem: gerçek para test ürünü + nadir ödül, bakiye SUNUCUDA (sunucu/g_cuzdan.js; bu dosyanın kopyası sunucu/dukkan.json). Güç veren ürün yok, rastgele kutu yok.",
  "surum": 1,
  "coin": {
   "mac": 10,
   "galibiyet": 15,
   "dusurme": 2,
-  "seviye": 100,
-  "gorevOran": 0.5
+  "seviye": 75,
+  "gorevOran": 0.35
  },
- "gunlukSayi": 6,
+ "reklamOdul": {
+  "coin": 60,
+  "gunluk": 5
+ },
+ "gunlukSayi": 5,
+ "hediye": [30, 40, 50, 30, 40, 50, 100],
  "fiyat": {
   "aura_halka_neon": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "aura_halka_buz": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "aura_halka_gul": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "aura_halka_gece": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "aura_alev_neon": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "aura_alev_buz": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "aura_alev_gul": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "aura_alev_gece": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "aura_kivilcim_neon": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "aura_kivilcim_buz": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "aura_kivilcim_gul": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "aura_kivilcim_gece": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "aura_isik_neon": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "aura_isik_buz": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "aura_isik_gul": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "aura_isik_gece": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "iz_serit_neon": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "iz_serit_gul": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "iz_serit_gece": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "iz_yildiz_neon": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "iz_yildiz_gul": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "iz_yildiz_gece": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "iz_kabarcik_neon": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "iz_kabarcik_gul": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "iz_kabarcik_gece": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "iz_kivilcim_neon": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "iz_kivilcim_gul": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "iz_kivilcim_gece": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "iz_duman_neon": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "iz_duman_gul": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "iz_duman_gece": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "plaka_neon": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "plaka_gul": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "plaka_okyanus": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "plaka_lav": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "plaka_seker": {
-   "coin": 4000,
+   "coin": 8000,
    "gem": 250
   },
   "plaka_kral": {
    "gem": 300
   },
+  "plaka_gozluk": {
+   "gem": 400
+  },
+  "plaka_taht": {
+   "gem": 400
+  },
+  "plaka_centik": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "plaka_palyaco": {
+   "gem": 400
+  },
+  "plaka_esneme": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "plaka_zengin": {
+   "gem": 400
+  },
+  "plaka_mikrofon": {
+   "coin": 8000,
+   "gem": 250
+  },
   "dogma_isik_dk": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "dogma_patlama_dk": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "dogma_portal_dk": {
-   "coin": 1500,
+   "coin": 3000,
    "gem": 100
   },
   "zafer_konfeti_dk": {
@@ -174,6 +203,27 @@
   },
   "zafer_havai_fisek_dk": {
    "gem": 300
+  },
+  "zafer_bulut": {
+   "gem": 150
+  },
+  "zafer_cop": {
+   "gem": 300
+  },
+  "zafer_veda": {
+   "gem": 150
+  },
+  "zafer_yildirim": {
+   "gem": 300
+  },
+  "zafer_heykel": {
+   "gem": 300
+  },
+  "zafer_para": {
+   "gem": 300
+  },
+  "zafer_paparazzi": {
+   "gem": 150
   }
  },
  "gemPaket": [

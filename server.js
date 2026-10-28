@@ -326,7 +326,7 @@ wss.on('connection', ws => {
 //      pv 4: özel oda 2–4 kişi (OZEL_KAPASITE). Her katılımda herkese güncel kadro gider (oyuncu = katılış sırası); istemciler
 //      tam ağ kurar (sırası küçük olan teklif yapar). Maçı kurucu başlatır: {t:'kilit', oyunda:1|0} (oyundayken katılım 'oyunda' hatası).
 //      Kurucu dışında biri çıkarsa oda açık kalır ({t:'ayrildi', kimden, acik:true}); kurucu çıkarsa oda kapanır (acik:false, kapandi:true).
-//   → {t:'ara', bot:1, bolge, rtt}       ← {t:'kuyruk', bekleyen} | {t:'esles', ..., tur:'ara'} | {t:'bot'}
+//   → {t:'ara', bot:1, bolge, rtt[, kisi:2|3|4, takim:'tek'|'2v2']}  ← {t:'kuyruk', bekleyen[, kisi, bulunan]} | {t:'esles', ..., tur:'ara'[, kisi, takim]} | {t:'bot'[, kisi, takim]}
 //   → {t:'sdp'|'ice'|'yeniden', kime?, ...}   ← aynı mesaj kime'ye (yoksa odadaki diğerlerine) {kimden} ile; 'yeniden': kopan eş bağlantısını kurmasını ister
 //   → {t:'yol', yol:'host'|'srflx'|'relay', rtt}   istatistik
 //   → {t:'iptal'} / {t:'ayril'}          ← karşıya {t:'ayrildi', kimden}
@@ -334,12 +334,12 @@ wss.on('connection', ws => {
 //   sayılmaz: G_ASKI_MS (15 sn; istemcinin 12 sn eş kararından uzun) askıda, yuvası durur. Yeni soket → {t:'devam', jeton, pv} ← {t:'devam_ok', id, kod}
 //   (kimlik ve yuva devredilir; eski soket sunucuda hâlâ açık görünse de) | {t:'devam_yok'} (süre doldu / jeton yok). Süre dolarsa eski akış (ayrildi).
 //   POST /g/desync {pv, harita, tik, hashBiz, hashO}   (yalnız özet; sayaç)
-const MIN_PV_GODOT = Number(process.env.MIN_PV_GODOT) || 5;   // 5: rövanş paketi + sim içi DURDUR + kopma toparlanması (eşler arası; sunucu aynı); 4: özel oda 2–4 kişi + takım (tam ağ, kime yönlendirme, kilit); 3: özel odada maç ayarı BASLA paketinde (ev sahibi harita/mod/can/süre); 2: Faz 7 K1 el sıkışma kartı + emote (godot/AG.md §10); altı → güncelle ekranı
+const MIN_PV_GODOT = Number(process.env.MIN_PV_GODOT) || 6;   // 6: bot v2 + bomba kuralları (sim kuralı değişti, 5 ile desync); 5: rövanş paketi + sim içi DURDUR + kopma toparlanması (eşler arası; sunucu aynı); 4: özel oda 2–4 kişi + takım (tam ağ, kime yönlendirme, kilit); 3: özel odada maç ayarı BASLA paketinde (ev sahibi harita/mod/can/süre); 2: Faz 7 K1 el sıkışma kartı + emote (godot/AG.md §10); altı → güncelle ekranı
 const G_BOT_FILL_MS = +(process.env.G_BOT_FILL_MS || 15000);
 const OZEL_KAPASITE = 4;   // pv 4: kodla kurulan oda en çok 4 insan (botlar istemcide, sim içinde)
 const G_HARITALAR = ['aztek', 'saray', 'lab', 'pagoda', 'uzay', 'kasaba', 'seker', 'yanardag', 'dolap', 'lotus']; // Godot Faz 4: 10 harita (istemci veri/haritalar/*.json ile aynı adlar)
 const gwss = new WebSocketServer({ noServer: true, maxPayload: 16384 });
-let gKuyruk = [];            // {ws, bolge, rtt, bot, t0}
+let gKuyruk = [];            // {ws, bolge, rtt, bot, t0, kisi, takim}
 const gOdalar = new Map();   // kod -> {kod, uyeler:[ws], tohum, harita, basladi}
 const gStats = { eslesme: 0, bot: 0, yol: { host: 0, srflx: 0, relay: 0, prflx: 0 }, desync: 0 };
 let gId = 1;
@@ -395,24 +395,58 @@ function gOdaKadro(oda) {
   oda.uyeler.forEach((w, i) => gSend(w, { t: 'esles', oyuncu: i, kod: oda.kod, tohum: oda.tohum, harita: oda.harita, kadro: gKadro(oda.uyeler), tur: 'oda', kurucu: oda.uyeler[0]._gid }));
 }
 function gKuyruktanCik(ws) { const n = gKuyruk.length; gKuyruk = gKuyruk.filter(e => e.ws !== ws); return gKuyruk.length !== n; }
-function gKuyrukYayin() { for (const e of gKuyruk) gSend(e.ws, { t: 'kuyruk', bekleyen: gKuyruk.length }); }
+/** K4 (pv değişmez): hızlı eşleşme isteği isteğe bağlı kisi (2|3|4) + takim ('tek'|'2v2', yalnız 4 kişide); alan yoksa 2 / 'tek' (eski istemci). */
+function gKuyrukKalip(d) {
+  const kisi = [2, 3, 4].includes(+d.kisi) ? +d.kisi : 2;
+  return { kisi, takim: kisi === 4 && d.takim === '2v2' ? '2v2' : 'tek' };
+}
+/** a ile aynı kalıpta (kisi+takim, pv/engel uyumlu, saat dilimi penceresi içinde) en çok a.kisi insanlık grup; a her zaman ilk. */
+function gGrupBul(a, now) {
+  const cands = gKuyruk.filter(b => b !== a && b.kisi === a.kisi && b.takim === a.takim && gUyumlu(a.ws, b.ws)).sort((x, y) => Math.abs(x.bolge - a.bolge) - Math.abs(y.bolge - a.bolge));
+  const grup = [a];
+  for (const c of cands) {
+    if (grup.length >= a.kisi) break;
+    if (Math.abs(c.bolge - a.bolge) > tzWindow(now - Math.min(a.t0, c.t0))) continue;
+    if (grup.every(g => gUyumlu(g.ws, c.ws))) grup.push(c);
+  }
+  return grup;
+}
+function gKuyrukYayin() {
+  const now = Date.now();
+  for (const e of gKuyruk) {
+    if (e.kisi > 2) gSend(e.ws, { t: 'kuyruk', bekleyen: gKuyruk.length, kisi: e.kisi, bulunan: gGrupBul(e, now).length });
+    else gSend(e.ws, { t: 'kuyruk', bekleyen: gKuyruk.length });
+  }
+}
+/** Kuyruk grubundan oda kur ve başlat. Eksik yuvalar (kisi - insan) istemcide bot: sunucu yalnız insanları listeler, kurucu (en eski bekleyen) kadroyu BASLA ile verir. */
+function gKuyrukOdasi(grup) {
+  grup.sort((x, y) => x.t0 - y.t0);
+  gKuyruk = gKuyruk.filter(e => !grup.includes(e));
+  const kod = makeCode();
+  const oda = { kod, uyeler: grup.map(e => e.ws), basladi: false };
+  gOdalar.set(kod, oda); for (const e of grup) e.ws._goda = oda;
+  gBaslat(oda, 'ara', grup[0].kisi > 2 ? { kisi: grup[0].kisi, takim: grup[0].takim } : {});
+}
 function gEslestir() {
   const now = Date.now();
   let degisti = false;
   for (let i = 0; i < gKuyruk.length; i++) {
     const a = gKuyruk[i];
-    const cands = gKuyruk.filter(b => b !== a && gUyumlu(a.ws, b.ws)).sort((x, y) => Math.abs(x.bolge - a.bolge) - Math.abs(y.bolge - a.bolge));
-    const b = cands.find(c => Math.abs(c.bolge - a.bolge) <= tzWindow(now - Math.min(a.t0, c.t0)));
-    if (!b) continue;
-    gKuyruk = gKuyruk.filter(e => e !== a && e !== b);
-    const kod = makeCode();
-    const oda = { kod, uyeler: [a.ws, b.ws], basladi: false };
-    gOdalar.set(kod, oda); a.ws._goda = oda; b.ws._goda = oda;
-    gBaslat(oda, 'ara');
+    const grup = gGrupBul(a, now);
+    if (grup.length < a.kisi) continue;
+    gKuyrukOdasi(grup);
     degisti = true; i = -1;
   }
   for (const e of gKuyruk.slice()) {
-    if (e.bot && now - e.t0 >= G_BOT_FILL_MS) { gSend(e.ws, { t: 'bot' }); gKuyruktanCik(e.ws); statDay(); stats.botFills++; gStats.bot++; degisti = true; }
+    if (!gKuyruk.includes(e)) continue;
+    if (e.bot && now - e.t0 >= G_BOT_FILL_MS) {
+      if (e.kisi > 2) {
+        const grup = gGrupBul(e, now);
+        if (grup.length >= 2) { gKuyrukOdasi(grup); statDay(); stats.botFills++; gStats.bot++; degisti = true; continue; }   /* 2+ insan: eksik yuvalar bot dolgusu */
+        gSend(e.ws, { t: 'bot', kisi: e.kisi, takim: e.takim });   /* tek insan: yerel bot maçı (kisi - 1 bot) */
+      } else gSend(e.ws, { t: 'bot' });
+      gKuyruktanCik(e.ws); statDay(); stats.botFills++; gStats.bot++; degisti = true;
+    }
   }
   if (degisti) gKuyrukYayin();
 }
@@ -474,7 +508,7 @@ gwss.on('connection', ws => {
       gKuyruktanCik(ws); gOdadanCik(ws); gLig.araIstek(ws, d);
     } else if (d.t === 'ara') {
       gKuyruktanCik(ws); gOdadanCik(ws); gLig.cik(ws);
-      gKuyruk.push({ ws, bolge: Number.isFinite(+d.bolge) ? Math.max(-12, Math.min(14, +d.bolge)) : 0, rtt: +d.rtt || ws._rtt || 999, bot: !!d.bot, t0: Date.now() });
+      gKuyruk.push({ ...gKuyrukKalip(d), ws, bolge: Number.isFinite(+d.bolge) ? Math.max(-12, Math.min(14, +d.bolge)) : 0, rtt: +d.rtt || ws._rtt || 999, bot: !!d.bot, t0: Date.now() });
       gKuyrukYayin(); gEslestir();
     } else if (d.t === 'iptal') {
       if (gKuyruktanCik(ws)) gKuyrukYayin(); gLig.cik(ws);
