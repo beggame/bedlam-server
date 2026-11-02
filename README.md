@@ -51,3 +51,12 @@ npm install
 PORT=9123 node server.js
 node test_g.js 9123   # /g/sig protokol testi (12 kontrol)
 ```
+
+## Günün kuralı (klasik mod varyantı)
+- Veri: `kurallar.json` (`gunler` 0=Pazar…6, `oran` 0.25, `saatDilimi` Europe/Istanbul; gün sınırı sabit UTC+3). Aynı dosya istemcide `godot/veri/` ve `godot/proje/veri/` altında. Test için `KURALLAR_DOSYA` ortam değişkeni başka dosya gösterir.
+- Kurallar: `can` (normal, 3 can; varsayılan), `zincir`, `ganimet`, `tac`, `fitil` (oyunda SICAK BOMBA), `hayatta` (HAYATTA KALMA). Hafta: Pzt+Sal zincir, Çar fitil, Per tac, Cum hayatta, Cmt+Paz ganimet.
+- `find` mesajına `gunKurali:1|0` eklenir (yok = eski istemci = 0).
+- Eşleşen mod `classic` ve gruptaki HERKES `gunKurali:1` ise olasılık `oran` ile bugünün kuralı seçilir; aksi `can`. Kuyruk bölünmez.
+- `match` mesajına `kural:"<kural>"` yalnız `can` dışı seçildiyse eklenir (yok = can) → eski istemciler etkilenmez.
+- `GET /kural` → `{gun:"YYYY-MM-DD", kural}` (bugünün kuralı; menü kartı için). `/stats` → `kural:{zincir:n,…,can:n}` (bugünkü maçlar). `[mm] eşleşme` satırında `kural X`.
+- Test: `node test_kural.js` (saf işlevler + gerçek sunucu süreci).

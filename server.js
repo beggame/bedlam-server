@@ -26,10 +26,11 @@ const app = express();
 app.set('trust proxy', true);
 app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); next(); });
 
-const stats = { day: '', matches: 0, botFills: 0, peakOnline: 0, iceIssued: 0 };
+const KURAL = require('./kural'); const kurallarCfg = KURAL.yukle();
+const stats = { day: '', matches: 0, botFills: 0, peakOnline: 0, iceIssued: 0, kural: {} };
 function statDay() {
   const d = new Date().toISOString().slice(0, 10);
-  if (stats.day !== d) { stats.day = d; stats.matches = 0; stats.botFills = 0; stats.peakOnline = 0; stats.iceIssued = 0; }
+  if (stats.day !== d) { stats.day = d; stats.matches = 0; stats.botFills = 0; stats.peakOnline = 0; stats.iceIssued = 0; stats.kural = {}; }
 }
 
 app.get('/', (req, res) => res.json({ ok: true, name: 'darmaduman-net', v: 2, minPv: MIN_PV, uptime: Math.round(process.uptime()) }));
@@ -154,10 +155,10 @@ app.get('/ice', async (req, res) => {
 
 // ---- 3) Maç Ara eşleştirme kuyruğu ----------------------------------------
 // Protokol (JSON):
-//   istemci → {t:'find', pv, size:2|3|4, mode, modes:[...]|null, tz, bot:1}   kuyruğa gir
+//   istemci → {t:'find', pv, size:2|3|4, mode, modes:[...]|null, tz, bot:1, gunKurali:1|0}   kuyruğa gir
 //   istemci → {t:'cancel'}
 //   sunucu  → {t:'queued', size, waiting}
-//   sunucu  → {t:'match', role:'host'|'guest', code, size, mode, delay}
+//   sunucu  → {t:'match', role:'host'|'guest', code, size, mode, delay, kural?}   kural: yalnız 'can' dışıysa (zincir|ganimet|tac|fitil|hayatta); yoksa = can
 //   sunucu  → {t:'bot'}   BOT_FILL_MS dolup rakip bulunamadı (yalnız bot:1 diyenlere)
 //   sunucu  → {t:'guncelle', minPv}   istemci surumu MIN_PV altinda (kuyruga alinmaz)
 //   GET /surum → {minPv}
@@ -217,13 +218,14 @@ function tryMatch() {
     queue = queue.filter(e => !group.includes(e));
     const code = makeCode();
     const mode = pickMode(modes);
+    const kural = KURAL.sec(kurallarCfg, mode, group.map(e => e.gunKurali), now, Math.random);
     const host = group.slice().sort((x, y) => (x.ws._rtt ?? 999) - (y.ws._rtt ?? 999))[0];
     for (const e of group) {
       const isHost = e === host;
-      send(e.ws, { t: 'match', role: isHost ? 'host' : 'guest', code, size: a.size, mode, delay: isHost ? 0 : 900 });
+      send(e.ws, { t: 'match', role: isHost ? 'host' : 'guest', code, size: a.size, mode, delay: isHost ? 0 : 900, ...(kural !== 'can' ? { kural } : {}) });
     }
-    statDay(); stats.matches++;
-    console.log(`[mm] eşleşme: ${a.size} kişi, ${mode}, tz ${group.map(e => e.tz).join('/')}, rtt ${group.map(e => e.ws._rtt ?? '?').join('/')} → ODA ${code}`);
+    statDay(); stats.matches++; stats.kural[kural] = (stats.kural[kural] || 0) + 1;
+    console.log(`[mm] eşleşme: ${a.size} kişi, ${mode}, kural ${kural}, tz ${group.map(e => e.tz).join('/')}, rtt ${group.map(e => e.ws._rtt ?? '?').join('/')} → ODA ${code}`);
     changed = true; i = -1; // kuyruk değişti, baştan tara
   }
   // uzun bekleyenleri bota yönlendir
@@ -286,6 +288,7 @@ wss.on('connection', ws => {
         modes: parseModes(d),
         tz: Number.isFinite(+d.tz) ? Math.max(-12, Math.min(14, +d.tz)) : 0,
         bot: !!d.bot,
+        gunKurali: d.gunKurali === 1 || d.gunKurali === true ? 1 : 0,   /* yok = eski istemci → 0 */
         t0: Date.now()
       });
       broadcastWaiting();
@@ -558,13 +561,15 @@ const gHesap = require('./g_hesap').kur(app);   // Faz 7.5 /g/ayar + hesap silme
 const gCuzdan = require('./g_cuzdan').kur(app);   // Faz 7.7 gem cüzdanı (/g/cuzdan v1)
 const gSosyal = require('./g_sosyal').kur(app);   // Faz 7.8 /g/rapor v1
 
+app.get('/kural', (req, res) => { res.set('Cache-Control', 'no-store'); res.json(KURAL.bugunKural(kurallarCfg, Date.now())); });
+
 app.get('/stats', (req, res) => {
   statDay();
   res.set('Cache-Control', 'no-store');
   res.json({
     godot: { online: gwss.clients.size, kuyruk: gKuyruk.length, odalar: gOdalar.size, ...gStats, minPv: MIN_PV_GODOT, magaza: gMagaza.istat, hesap: gHesap.istat, cuzdan: gCuzdan.istat, sosyal: gSosyal.istat, lig: gLig.istat },
     online: wss.clients.size, queue: queue.length, rooms: rooms.size,
-    today: stats.day, matches: stats.matches, botFills: stats.botFills, peakOnline: stats.peakOnline,
+    today: stats.day, matches: stats.matches, kural: stats.kural, botFills: stats.botFills, peakOnline: stats.peakOnline,
     ice: turnMode(), iceIssued: stats.iceIssued, iceDayCap: ICE_DAY_CAP, turn30dGB: guard.gb, turnCapGB: TURN_MONTH_CAP_GB, turnBlocked: guard.blocked, guardErr: guard.err, uptime: Math.round(process.uptime())
   });
 });

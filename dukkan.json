@@ -15,6 +15,306 @@
  "gunlukSayi": 5,
  "hediye": [30, 40, 50, 30, 40, 50, 100],
  "fiyat": {
+  "aura_halka_kirmizi": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "aura_halka_turuncu": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "aura_halka_sari": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "aura_halka_yesil": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "aura_halka_mor": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "aura_alev_kirmizi": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "aura_alev_turuncu": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "aura_alev_sari": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "aura_alev_yesil": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "aura_alev_mavi": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "aura_alev_mor": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "aura_kivilcim_kirmizi": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "aura_kivilcim_turuncu": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "aura_kivilcim_sari": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "aura_kivilcim_yesil": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "aura_kivilcim_mavi": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "aura_kivilcim_mor": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "aura_isik_kirmizi": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "aura_isik_turuncu": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "aura_isik_sari": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "aura_isik_yesil": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "aura_isik_mavi": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "aura_isik_mor": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "iz_serit_beyaz": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "iz_serit_altin": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "iz_serit_mavi": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "iz_serit_pembe": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "iz_yildiz_beyaz": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "iz_yildiz_altin": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "iz_yildiz_mavi": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "iz_yildiz_pembe": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "iz_kabarcik_beyaz": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "iz_kabarcik_altin": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "iz_kabarcik_mavi": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "iz_kabarcik_pembe": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "iz_kivilcim_beyaz": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "iz_kivilcim_altin": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "iz_kivilcim_mavi": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "iz_kivilcim_pembe": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "iz_duman_beyaz": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "iz_duman_altin": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "iz_duman_mavi": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "iz_duman_pembe": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "plaka_altin": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "plaka_buz": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "plaka_ates": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "plaka_zumrut": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "plaka_gece": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "plaka_gokkusagi": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "dogma_isik": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "dogma_patlama": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "dogma_portal": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "zafer_konfeti": {
+   "coin": 1500,
+   "gem": 50
+  },
+  "zafer_havai_fisek": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "zafer_altin_yagmur": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "dogma_parasut": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "dogma_parasut_altin": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "dogma_gokta": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "dogma_gokta_buz": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "aura_hale_altin": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "aura_hale_beyaz": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "aura_kanat_beyaz": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "dogma_yumurta": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "dogma_yumurta_altin": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "gg_bay": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "gg_mezar": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "gg_bayrak": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "gg_f": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "gg_sersem": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "gg_altin": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "gg_buz": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "gg_tas": {
+   "coin": 3000,
+   "gem": 100
+  },
+  "gg_alev": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "gg_kafatasi": {
+   "coin": 8000,
+   "gem": 250
+  },
+  "gg_defne": {
+   "coin": 8000,
+   "gem": 250
+  },
   "aura_halka_neon": {
    "coin": 3000,
    "gem": 100
@@ -228,12 +528,28 @@
  },
  "gemPaket": [
   {
-   "urun": "gem_80",
-   "gem": 80
+   "urun": "gem_100",
+   "gem": 100
   },
   {
-   "urun": "gem_500",
-   "gem": 500
+   "urun": "gem_550",
+   "gem": 550,
+   "ek": 10
+  },
+  {
+   "urun": "gem_1200",
+   "gem": 1200,
+   "ek": 20
+  },
+  {
+   "urun": "gem_2600",
+   "gem": 2600,
+   "ek": 30
+  },
+  {
+   "urun": "gem_7000",
+   "gem": 7000,
+   "ek": 40
   },
   {
    "urun": "ilk_paket",
@@ -242,7 +558,100 @@
     "plaka_kral",
     "aura_alev_gul"
    ],
+   "kutu": "buyuk",
    "tekSefer": true
+  },
+  {
+   "urun": "destekci",
+   "gem": 500,
+   "ogeler": [
+    "plaka_destekci"
+   ],
+   "tekSefer": true
+  },
+  {
+   "urun": "set_ates",
+   "gem": 0,
+   "ogeler": [
+    "aura_alev_kirmizi",
+    "plaka_lav",
+    "gg_alev",
+    "gg_lav",
+    "zafer_havai_fisek_dk"
+   ],
+   "tekSefer": true,
+   "set": true,
+   "ad": "ATEŞ SETİ"
+  },
+  {
+   "urun": "set_gece",
+   "gem": 0,
+   "ogeler": [
+    "aura_alev_gece",
+    "plaka_neon",
+    "iz_yildiz_gece",
+    "gg_kafatasi",
+    "zafer_yildirim"
+   ],
+   "tekSefer": true,
+   "set": true,
+   "ad": "GECE SETİ"
+  },
+  {
+   "urun": "set_gul",
+   "gem": 0,
+   "ogeler": [
+    "aura_halka_gul",
+    "plaka_gul",
+    "iz_serit_pembe",
+    "gg_kedi",
+    "zafer_konfeti_dk"
+   ],
+   "tekSefer": true,
+   "set": true,
+   "ad": "GÜL SETİ"
+  },
+  {
+   "urun": "set_buz",
+   "gem": 0,
+   "ogeler": [
+    "aura_alev_mavi",
+    "plaka_buz",
+    "dogma_gokta_buz",
+    "iz_serit_mavi",
+    "gg_elektrik"
+   ],
+   "tekSefer": true,
+   "set": true,
+   "ad": "BUZ SETİ"
+  },
+  {
+   "urun": "set_kral",
+   "gem": 0,
+   "ogeler": [
+    "aura_hale_altin",
+    "plaka_taht",
+    "dogma_yumurta_altin",
+    "zafer_altin_yagmur",
+    "gg_tac"
+   ],
+   "tekSefer": true,
+   "set": true,
+   "ad": "KRAL SETİ"
+  },
+  {
+   "urun": "set_trol",
+   "gem": 0,
+   "ogeler": [
+    "plaka_palyaco",
+    "gg_palyaco",
+    "gg_ez",
+    "gg_l",
+    "zafer_cop"
+   ],
+   "tekSefer": true,
+   "set": true,
+   "ad": "TROL SETİ"
   }
  ]
 }

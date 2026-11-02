@@ -1,0 +1,85 @@
+{
+ "_aciklama": "Kupa yolu gem ödülleri (sunucu doğrulaması; /g/cuzdan/odul). kupaYolu = godot/veri/ilerleme.json kupaYolu bloğunun KOPYASI (test_kupa.js eşitliği denetler); kutuGem = kutu gem düşüşünün izinli aralığı; gunlukKutuGem = kimlik başına günlük kutu gem tavanı; yolTaban/yolGun = erişilebilir adım üst sınırı (ilk istekten itibaren taban + gun*yolGun).",
+ "kupaYolu": {
+  "adim": 5,
+  "coinArtis": 0.03,
+  "gemYerineCoin": 40,
+  "varsayilan": "temel",
+  "sablonlar": {
+   "temel": [
+    {
+     "coin": 15
+    },
+    {
+     "coin": 20
+    },
+    {
+     "kutu": "kucuk"
+    },
+    {
+     "coin": 30
+    },
+    {
+     "kutu": "kucuk"
+    }
+   ],
+   "bes": [
+    {
+     "coin": 25
+    },
+    {
+     "coin": 35
+    },
+    {
+     "gem": 3
+    },
+    {
+     "coin": 50
+    },
+    {
+     "kutu": "buyuk"
+    }
+   ],
+   "on": [
+    {
+     "coin": 40
+    },
+    {
+     "kutu": "kucuk"
+    },
+    {
+     "gem": 6
+    },
+    {
+     "kutu": "kucuk"
+    },
+    {
+     "kutu": "buyuk"
+    }
+   ]
+  },
+  "seviyeSablon": [
+   {
+    "her": 10,
+    "sablon": "on"
+   },
+   {
+    "her": 5,
+    "sablon": "bes"
+   }
+  ]
+ },
+ "kutuGem": {
+  "kucuk": {
+   "min": 2,
+   "max": 4
+  },
+  "buyuk": {
+   "min": 8,
+   "max": 15
+  }
+ },
+ "gunlukKutuGem": 30,
+ "yolTaban": 60,
+ "yolGun": 25
+}

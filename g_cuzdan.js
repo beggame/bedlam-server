@@ -4,8 +4,8 @@
 // Coin oynayarak kazanılır ve istemcide kalır (hile yalnız oyuncunun kendi kozmetiğini etkiler; güç veren ürün yok).
 //
 // Protokol v1 (gövde JSON; "kimlik" = Firebase ID jetonu, imzası Google sertifikalarıyla doğrulanır):
-//   POST /g/cuzdan        { v:1, kimlik }                          → { v:1, ok, gem, sahip[], ilkPaket }
-//   POST /g/cuzdan/yukle  { v:1, kimlik, paket, urun, jeton }      → gem paketi: Play doğrulaması + jeton başına TEK yükleme (satin/<sha256>)
+//   POST /g/cuzdan        { v:1, kimlik }                          → { v:1, ok, gem, sahip[], ilkPaket, tek[] }   (tek = alınmış tek seferlik ürün kimlikleri; ilkPaket = tek içinde ilk_paket, eski istemci uyumu)
+//   POST /g/cuzdan/yukle  { v:1, kimlik, paket, urun, jeton }      → gem paketi (tuketilir ya da tekSefer kalici örn destekci): Play doğrulaması + jeton başına TEK yükleme (satin/<sha256>); yanıtta iade = pakette zaten sahip olunan öğelerin gem karşılığı
 //   POST /g/cuzdan/harca  { v:1, kimlik, oge, islem }              → gemle öğe: fiyat sunucu kataloğundan (dukkan.json), işlem kimliğiyle TEK harcama
 //   Hata: { v:1, ok:false, durum: surum | kimlik | gecersiz | yetersiz | zaten_var | tek_sefer | gercek_kapali | bekliyor | iptal | dogrulayici_yok | hata }
 // Eşzamanlılık: her yazım Firestore commit + currentDocument (updateTime / exists:false) ön koşuluyla; çakışmada 3 kez yeniden dener (çift harcama yok).
@@ -21,6 +21,13 @@ const DUKKAN = JSON.parse(fs.readFileSync(path.join(__dirname, 'dukkan.json'), '
 const URUN = new Map(JSON.parse(fs.readFileSync(path.join(__dirname, 'urunler.json'), 'utf8')).urunler.map(u => [u.id, u]));
 const PAKETLER = JSON.parse(fs.readFileSync(path.join(__dirname, 'urunler.json'), 'utf8')).paket;
 const GEM_PAKET = new Map(DUKKAN.gemPaket.map(p => [p.urun, p]));
+const KUPA = JSON.parse(fs.readFileSync(path.join(__dirname, 'kupa.json'), 'utf8'));   // kupa yolu / kutu gem tabloları (godot/veri/ilerleme.json ile eşit; test_kupa.js)
+/** Kupa yolu adımının gem ödülü (istemcideki Kupa.Odul ile aynı seçim; coin ölçeklemesi gem'i etkilemez). 0 = bu adımda gem yok. */
+function yolGem(idx) {
+  const y = KUPA.kupaYolu, adim = y.adim || 5, sv = Math.floor(idx / adim) + 1, k = idx % adim; let ad = y.varsayilan;
+  for (const e of y.seviyeSablon || []) if (sv % e.her === 0 && y.sablonlar[e.sablon]) { ad = e.sablon; break; }
+  const sa = y.sablonlar[ad] || y.sablonlar.temel, o = sa[Math.min(k, sa.length - 1)]; return o && o.gem ? o.gem : 0;
+}
 
 // ---- Google erişim jetonu (yönetici) ----
 const b64url = b => Buffer.from(b).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
@@ -54,7 +61,9 @@ async function kimlikDogrula(idJeton) {
 
 // ---- Firestore (yönetici REST) ----
 const deger = v => typeof v === 'number' ? { integerValue: String(v) } : typeof v === 'boolean' ? { booleanValue: v } : Array.isArray(v) ? { arrayValue: { values: v.map(x => ({ stringValue: String(x) })) } } : { stringValue: String(v) };
-const coz = f => ({ gem: +(f?.gem?.integerValue || 0), sahip: (f?.sahip?.arrayValue?.values || []).map(x => x.stringValue), islemler: (f?.islemler?.arrayValue?.values || []).map(x => x.stringValue), ilkPaket: !!f?.ilkPaket?.booleanValue });
+/** Alınmış tek seferlik ürün kimlikleri; eski belgede yalnız ilkPaket:true varsa ilk_paket sayılır (geriye uyum). */
+const tekCoz = f => { const l = (f?.tek?.arrayValue?.values || []).map(x => x.stringValue); if (f?.ilkPaket?.booleanValue && !l.includes('ilk_paket')) l.push('ilk_paket'); return l; };
+const coz = f => ({ gem: +(f?.gem?.integerValue || 0), sahip: (f?.sahip?.arrayValue?.values || []).map(x => x.stringValue), islemler: (f?.islemler?.arrayValue?.values || []).map(x => x.stringValue), tek: tekCoz(f), kt0: +(f?.kt0?.integerValue || 0), kgun: f?.kgun?.stringValue || '', kgem: +(f?.kgem?.integerValue || 0) });
 // SAHTE_CUZDAN=1: YALNIZ YEREL GELİŞTİRME — Firestore yerine bellek deposu (aynı ön koşul anlamı); kimlik doğrulaması gerçek kalır. Render'da ASLA açılmaz.
 const bellek = new Map(); let bellekSurum = 0;
 async function oku(uid) {
@@ -68,11 +77,11 @@ async function yaz(uid, onceki, c, ek = []) {
   if (process.env.SAHTE_CUZDAN === '1') {
     const d = bellek.get('cuzdan/' + uid); if (onceki.var ? (!d || d.updateTime !== onceki.updateTime) : !!d) return 'cakisma';
     for (const e of ek) if (bellek.has(e.yol)) return 'var';
-    bellek.set('cuzdan/' + uid, { fields: { gem: deger(c.gem), sahip: deger(c.sahip), islemler: deger(c.islemler.slice(-50)), ilkPaket: deger(c.ilkPaket) }, updateTime: 'b' + (++bellekSurum) });
+    bellek.set('cuzdan/' + uid, { fields: { gem: deger(c.gem), sahip: deger(c.sahip), islemler: deger(c.islemler.slice(-50)), ilkPaket: deger(c.tek.includes('ilk_paket')), tek: deger(c.tek), kt0: deger(c.kt0 || 0), kgun: deger(c.kgun || ''), kgem: deger(c.kgem || 0) }, updateTime: 'b' + (++bellekSurum) });
     for (const e of ek) bellek.set(e.yol, {}); return 'ok';
   }
   const t = await erisimJetonu();
-  const writes = [{ update: { name: `${FS_AD}/cuzdan/${uid}`, fields: { gem: deger(c.gem), sahip: deger(c.sahip), islemler: deger(c.islemler.slice(-50)), ilkPaket: deger(c.ilkPaket) } }, currentDocument: onceki.var ? { updateTime: onceki.updateTime } : { exists: false } }];
+  const writes = [{ update: { name: `${FS_AD}/cuzdan/${uid}`, fields: { gem: deger(c.gem), sahip: deger(c.sahip), islemler: deger(c.islemler.slice(-50)), ilkPaket: deger(c.tek.includes('ilk_paket')), tek: deger(c.tek), kt0: deger(c.kt0 || 0), kgun: deger(c.kgun || ''), kgem: deger(c.kgem || 0) } }, currentDocument: onceki.var ? { updateTime: onceki.updateTime } : { exists: false } }];
   for (const e of ek) writes.push({ update: { name: `${FS_AD}/${e.yol}`, fields: Object.fromEntries(Object.entries(e.alan).map(([k, v]) => [k, deger(v)])) }, currentDocument: { exists: false } });
   const r = await fetch(`${FS}:commit`, { method: 'POST', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: JSON.stringify({ writes }) });
   if (r.ok) return 'ok'; if (r.status === 409 || r.status === 400 || r.status === 412) { const j = await r.json().catch(() => ({})); return /ALREADY_EXISTS|already exists/i.test(JSON.stringify(j)) ? 'var' : 'cakisma'; }
@@ -90,7 +99,7 @@ function kur(app, secenek = {}) {
     if (!process.env.FIREBASE_SERVIS_JSON && process.env.SAHTE_CUZDAN !== '1') { yanit(res, 503, { ok: false, durum: 'dogrulayici_yok' }); return null; }
     try { return { d, uid: await kimlikDogrula(d.kimlik) }; } catch (e) { yanit(res, 401, { ok: false, durum: 'kimlik' }); return null; }
   }
-  const cuzdanYanit = c => ({ gem: c.gem, sahip: c.sahip, ilkPaket: c.ilkPaket });
+  const cuzdanYanit = c => ({ gem: c.gem, sahip: c.sahip, ilkPaket: c.tek.includes('ilk_paket'), tek: c.tek });
   app.post('/g/cuzdan', async (req, res) => {
     const o = await ortak(req, res); if (!o) return;
     try { const w = await oku(o.uid); yanit(res, 200, { ok: true, ...cuzdanYanit(w.c) }); } catch (e) { yanit(res, 502, { ok: false, durum: 'hata' }); }
@@ -98,7 +107,7 @@ function kur(app, secenek = {}) {
   app.post('/g/cuzdan/yukle', async (req, res) => {
     const o = await ortak(req, res); if (!o) return; const { d, uid } = o; istat.yukle++;
     const u = URUN.get(d.urun), gp = GEM_PAKET.get(d.urun);
-    if (!u || u.tur !== 'tuketilir' || !gp || typeof d.jeton !== 'string' || d.jeton.length < 8 || d.jeton.length > 4096 || !PAKETLER.includes(d.paket)) return yanit(res, 400, { ok: false, durum: 'gecersiz' });
+    if (!u || !gp || (u.tur !== 'tuketilir' && !(u.tur === 'kalici' && gp.tekSefer)) || typeof d.jeton !== 'string' || d.jeton.length < 8 || d.jeton.length > 4096 || !PAKETLER.includes(d.paket)) return yanit(res, 400, { ok: false, durum: 'gecersiz' });
     try {
       const p = await dogrula(d.paket, d.urun, d.jeton);
       if (p.dogrulayiciYok) return yanit(res, 503, { ok: false, durum: 'dogrulayici_yok' });
@@ -107,12 +116,13 @@ function kur(app, secenek = {}) {
       if (p.purchaseState === 2) return yanit(res, 200, { ok: false, durum: 'bekliyor' }); if (p.purchaseState !== 0) return yanit(res, 200, { ok: false, durum: 'iptal' });
       const iz = crypto.createHash('sha256').update(d.jeton).digest('hex');
       for (let deneme = 0; deneme < 3; deneme++) {
-        const w = await oku(uid); const c = { ...w.c, sahip: [...w.c.sahip], islemler: [...w.c.islemler] };
+        const w = await oku(uid); const c = { ...w.c, sahip: [...w.c.sahip], tek: [...w.c.tek], islemler: [...w.c.islemler] };
         if (c.islemler.includes('j:' + iz.slice(0, 24))) return yanit(res, 200, { ok: true, durum: 'zaten', ...cuzdanYanit(c) });   // bu jeton zaten yüklendi (istemci tekrar denedi): tüketebilir
-        if (gp.tekSefer && c.ilkPaket) return yanit(res, 200, { ok: false, durum: 'tek_sefer', ...cuzdanYanit(c) });
-        c.gem += gp.gem; for (const og of gp.ogeler || []) if (!c.sahip.includes(og)) c.sahip.push(og); if (gp.tekSefer) c.ilkPaket = true; c.islemler.push('j:' + iz.slice(0, 24));
+        if (gp.tekSefer && c.tek.includes(gp.urun)) return yanit(res, 200, { ok: false, durum: 'tek_sefer', ...cuzdanYanit(c) });
+        let iade = 0; c.gem += gp.gem; for (const og of gp.ogeler || []) { if (!c.sahip.includes(og)) c.sahip.push(og); else iade += (DUKKAN.fiyat[og] && DUKKAN.fiyat[og].gem) || 0; }   // pakette sahip olunan öğe: gem fiyatı kadar iade
+        c.gem += iade; if (gp.tekSefer) c.tek.push(gp.urun); c.islemler.push('j:' + iz.slice(0, 24));
         const s = await yaz(uid, w, c, [{ yol: `satin/${iz}`, alan: { uid, urun: u.id, t: Date.now() } }]);
-        if (s === 'ok') { console.log(`[cuzdan] +${gp.gem} gem ${u.id} ${uid.slice(0, 8)}`); return yanit(res, 200, { ok: true, durum: 'yuklendi', ...cuzdanYanit(c) }); }
+        if (s === 'ok') { console.log(`[cuzdan] +${gp.gem} gem ${u.id} ${uid.slice(0, 8)}`); return yanit(res, 200, { ok: true, durum: 'yuklendi', iade, ...cuzdanYanit(c) }); }
         if (s === 'var') return yanit(res, 200, { ok: false, durum: 'zaten_kullanildi' });   // jeton başka hesaba yüklenmiş
       }
       return yanit(res, 409, { ok: false, durum: 'hata' });
@@ -123,7 +133,7 @@ function kur(app, secenek = {}) {
     const f = DUKKAN.fiyat[d.oge]; if (!f || !f.gem || typeof d.islem !== 'string' || d.islem.length < 6 || d.islem.length > 64) return yanit(res, 400, { ok: false, durum: 'gecersiz' });
     try {
       for (let deneme = 0; deneme < 3; deneme++) {
-        const w = await oku(uid); const c = { ...w.c, sahip: [...w.c.sahip], islemler: [...w.c.islemler] };
+        const w = await oku(uid); const c = { ...w.c, sahip: [...w.c.sahip], tek: [...w.c.tek], islemler: [...w.c.islemler] };
         if (c.islemler.includes('h:' + d.islem)) return yanit(res, 200, { ok: true, durum: 'zaten', ...cuzdanYanit(c) });
         if (c.sahip.includes(d.oge)) return yanit(res, 200, { ok: false, durum: 'zaten_var', ...cuzdanYanit(c) });
         if (c.gem < f.gem) return yanit(res, 200, { ok: false, durum: 'yetersiz', ...cuzdanYanit(c) });
@@ -133,15 +143,44 @@ function kur(app, secenek = {}) {
       return yanit(res, 409, { ok: false, durum: 'hata' });
     } catch (e) { console.log('[cuzdan] harca hata', e.message); return yanit(res, 502, { ok: false, durum: 'hata' }); }
   });
+  // Kupa yolu / kutu gem kazancı: kimlik başına TEK sefer (odul/<uid>_<id> belgesi exists:false ile, cüzdan yazımıyla aynı commit). Miktarı istemci seçmez:
+  //   tur 'yol' id 'y<adım>': gem sunucu tablosundan (kupa.json); adım ilk istekten bu yana erişilebilir üst sınırı (yolTaban + gün*yolGun) aşamaz → 'sinir' (istemci bekler, sonra dener).
+  //   tur 'kutu' id 'k<sayaç>' boy kucuk|buyuk: istemcinin açtığı kutunun gem düşüşü; miktar boyun izinli aralığında olmalı, kimlik başına günlük toplam tavanlı → 'limit'.
+  //   Yanıt: { ok:true, durum:'verildi'|'zaten', gem, sahip, ilkPaket } | { ok:false, durum:'gecersiz'|'sinir'|'limit' }
+  app.post('/g/cuzdan/odul', async (req, res) => {
+    const o = await ortak(req, res); if (!o) return; const { d, uid } = o; istat.odul = (istat.odul || 0) + 1;
+    const id = typeof d.id === 'string' ? d.id : ''; let gem = 0, idx = -1;
+    if (d.tur === 'yol') { const m = /^y([0-9]{1,4})$/.exec(id); if (m) { idx = +m[1]; gem = yolGem(idx); } }
+    else if (d.tur === 'kutu') { const m = /^k([0-9]{1,9})$/.exec(id), kb = KUPA.kutuGem[d.boy]; if (m && kb && Number.isInteger(d.gem) && d.gem >= kb.min && d.gem <= kb.max) gem = d.gem; }
+    if (!(gem > 0)) return yanit(res, 400, { ok: false, durum: 'gecersiz' });
+    try {
+      for (let deneme = 0; deneme < 3; deneme++) {
+        const w = await oku(uid); const c = { ...w.c, sahip: [...w.c.sahip], tek: [...w.c.tek], islemler: [...w.c.islemler] }; const simdi = Date.now(); const ilk = !c.kt0; if (ilk) c.kt0 = simdi;
+        if (d.tur === 'yol') {
+          const gun = Math.floor((simdi - c.kt0) / 864e5);
+          if (idx >= KUPA.yolTaban + KUPA.yolGun * gun) { if (ilk) await yaz(uid, w, c); return yanit(res, 200, { ok: false, durum: 'sinir', ...cuzdanYanit(c) }); }
+        } else {
+          const bugun = new Date(simdi).toISOString().slice(0, 10); if (c.kgun !== bugun) { c.kgun = bugun; c.kgem = 0; }
+          if (c.kgem + gem > KUPA.gunlukKutuGem) { if (ilk) await yaz(uid, w, c); return yanit(res, 200, { ok: false, durum: 'limit', ...cuzdanYanit(c) }); }
+          c.kgem += gem;
+        }
+        c.gem += gem;
+        const s = await yaz(uid, w, c, [{ yol: `odul/${uid}_${id}`, alan: { uid, tur: d.tur, id, gem, t: simdi } }]);
+        if (s === 'ok') { console.log(`[cuzdan] +${gem} gem ${d.tur} ${id} ${uid.slice(0, 8)}`); return yanit(res, 200, { ok: true, durum: 'verildi', ...cuzdanYanit(c) }); }
+        if (s === 'var') { const w2 = await oku(uid); if (w2.var !== w.var || w2.updateTime !== w.updateTime) continue; return yanit(res, 200, { ok: true, durum: 'zaten', ...cuzdanYanit(w2.c) }); }   // cüzdan değişmedi → bu kimlik daha önce verilmiş
+      }
+      return yanit(res, 409, { ok: false, durum: 'hata' });
+    } catch (e) { console.log('[cuzdan] odul hata', e.message); return yanit(res, 502, { ok: false, durum: 'hata' }); }
+  });
   return { istat };
 }
 /** Sunucu içi: öğeleri oyuncunun sunucu envanterine ekle (lig sezon ödülü). Çakışmada yeniden dener. */
 async function ogeEkle(uid, ogeler) {
   for (let d = 0; d < 3; d++) {
-    const w = await oku(uid); const c = { ...w.c, sahip: [...w.c.sahip], islemler: [...w.c.islemler] }; let yeni = false;
+    const w = await oku(uid); const c = { ...w.c, sahip: [...w.c.sahip], tek: [...w.c.tek], islemler: [...w.c.islemler] }; let yeni = false;
     for (const o of ogeler) if (!c.sahip.includes(o)) { c.sahip.push(o); yeni = true; }
     if (!yeni) return true; if (await yaz(uid, w, c) === 'ok') return true;
   }
   return false;
 }
-module.exports = { kur, kimlikDogrula, istat, ogeEkle, _bellek: bellek };
+module.exports = { kur, yolGem, kimlikDogrula, istat, ogeEkle, _bellek: bellek };

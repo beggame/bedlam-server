@@ -14,17 +14,38 @@
    "yedekFiyat": ""
   },
   {
-   "id": "gem_80",
+   "id": "gem_100",
    "tur": "tuketilir",
-   "gem": 80,
-   "ad": "80 GEM",
+   "gem": 100,
+   "ad": "100 GEM",
    "yedekFiyat": ""
   },
   {
-   "id": "gem_500",
+   "id": "gem_550",
    "tur": "tuketilir",
-   "gem": 500,
-   "ad": "500 GEM",
+   "gem": 550,
+   "ad": "550 GEM",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "gem_1200",
+   "tur": "tuketilir",
+   "gem": 1200,
+   "ad": "1200 GEM",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "gem_2600",
+   "tur": "tuketilir",
+   "gem": 2600,
+   "ad": "2600 GEM",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "gem_7000",
+   "tur": "tuketilir",
+   "gem": 7000,
+   "ad": "7000 GEM",
    "yedekFiyat": ""
   },
   {
@@ -32,6 +53,55 @@
    "tur": "tuketilir",
    "gem": 300,
    "ad": "İLK PAKET",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "destekci",
+   "tur": "kalici",
+   "hak": "reklamsiz",
+   "ad": "DESTEKÇİ",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "set_ates",
+   "tur": "tuketilir",
+   "gem": 0,
+   "ad": "ATEŞ SETİ",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "set_gece",
+   "tur": "tuketilir",
+   "gem": 0,
+   "ad": "GECE SETİ",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "set_gul",
+   "tur": "tuketilir",
+   "gem": 0,
+   "ad": "GÜL SETİ",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "set_buz",
+   "tur": "tuketilir",
+   "gem": 0,
+   "ad": "BUZ SETİ",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "set_kral",
+   "tur": "tuketilir",
+   "gem": 0,
+   "ad": "KRAL SETİ",
+   "yedekFiyat": ""
+  },
+  {
+   "id": "set_trol",
+   "tur": "tuketilir",
+   "gem": 0,
+   "ad": "TROL SETİ",
    "yedekFiyat": ""
   }
  ]
