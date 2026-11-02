@@ -10,6 +10,7 @@ Tek Node.js süreci, tek port. Maç trafiği sunucudan **geçmez** (WebRTC, gere
 | `/stats` | bağlı oyuncu, kuyruk, bugünkü maç / bot doldurma, günün zirvesi |
 | `/` | sağlık kontrolü |
 | `/g/sig` | **Godot istemcisi** (WebSocket): hello/pv, oda kur/katıl, eşleştirme (bölge+RTT), SDP/ICE rölesi, yol istatistiği — rollback için host yok (godot/AG.md) |
+| `/g/cokme` | Çökme / hata raporu (POST `{s,pv,p,m,y,n}`, kimliksiz, 8 KB, IP başına saatte 20; imza = sha1(m+yığın ilk satır) → Firestore `cokme/<imza>` sayaçlı; bellekte son 100). `GET ?anahtar=` ile liste |
 | `/g/desync`, `/g/surum` | Godot desync özeti (POST), en düşük Godot protokol sürümü (`MIN_PV_GODOT`, varsayılan 1) |
 
 ## v2'de ne değişti (v1 = GitHub beggame/bedlam-server 2026-08-08: `server.v1.bak.js`)
@@ -33,6 +34,8 @@ Tek Node.js süreci, tek port. Maç trafiği sunucudan **geçmez** (WebRTC, gere
 | `ICE_IP_PER_HOUR` | aynı IP'ye saatte en çok kimlik, varsayılan 20 |
 | `ICE_TTL_S` | kimlik ömrü, varsayılan 10800 (3 saat) |
 | `TURN_OFF` | `1` → TURN tamamen kapalı (acil durum) |
+| `COKME_ANAHTAR` | `GET /g/cokme?anahtar=...` ile bellekteki çökme listesini okuma anahtarı (tanımsızsa uç 404) |
+| `COKME_IP_SAAT` | aynı IP'den saatte en çok çökme raporu, varsayılan 20 |
 | `KEEP_AWAKE` | `1` → kendi adresine 10 dk'da bir istek, Render ücretsiz plan uyumaz (ayda 750 saat, tek servis 7/24 ≈ 744 saat) |
 
 TURN tanımlı değilse yalnız STUN döner (eski davranış).

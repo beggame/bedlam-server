@@ -183,4 +183,4 @@ async function ogeEkle(uid, ogeler) {
   }
   return false;
 }
-module.exports = { kur, yolGem, kimlikDogrula, istat, ogeEkle, _bellek: bellek };
+module.exports = { kur, yolGem, kimlikDogrula, erisimJetonu, istat, ogeEkle, _bellek: bellek };
