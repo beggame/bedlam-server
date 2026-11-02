@@ -155,7 +155,7 @@ app.get('/ice', async (req, res) => {
 
 // ---- 3) Maç Ara eşleştirme kuyruğu ----------------------------------------
 // Protokol (JSON):
-//   istemci → {t:'find', pv, size:2|3|4, mode, modes:[...]|null, tz, bot:1, gunKurali:1|0}   kuyruğa gir
+//   istemci → {t:'find', pv, size:2|3|4, mode, modes:[...]|null, tz, bot:1, kurallar:1|0}   kuyruğa gir
 //   istemci → {t:'cancel'}
 //   sunucu  → {t:'queued', size, waiting}
 //   sunucu  → {t:'match', role:'host'|'guest', code, size, mode, delay, kural?}   kural: yalnız 'can' dışıysa (zincir|ganimet|tac|fitil|hayatta); yoksa = can
@@ -218,7 +218,7 @@ function tryMatch() {
     queue = queue.filter(e => !group.includes(e));
     const code = makeCode();
     const mode = pickMode(modes);
-    const kural = KURAL.sec(kurallarCfg, mode, group.map(e => e.gunKurali), now, Math.random);
+    const kural = KURAL.sec(kurallarCfg, mode, group.map(e => e.kurallar), now, Math.random);
     const host = group.slice().sort((x, y) => (x.ws._rtt ?? 999) - (y.ws._rtt ?? 999))[0];
     for (const e of group) {
       const isHost = e === host;
@@ -288,7 +288,7 @@ wss.on('connection', ws => {
         modes: parseModes(d),
         tz: Number.isFinite(+d.tz) ? Math.max(-12, Math.min(14, +d.tz)) : 0,
         bot: !!d.bot,
-        gunKurali: d.gunKurali === 1 || d.gunKurali === true ? 1 : 0,   /* yok = eski istemci → 0 */
+        kurallar: d.kurallar === 1 || d.kurallar === true ? 1 : 0,   /* FARKLI KURALLAR; yok = eski istemci → 0 (can) */
         t0: Date.now()
       });
       broadcastWaiting();
@@ -401,7 +401,7 @@ function gKuyruktanCik(ws) { const n = gKuyruk.length; gKuyruk = gKuyruk.filter(
 /** K4 (pv değişmez): hızlı eşleşme isteği isteğe bağlı kisi (2|3|4) + takim ('tek'|'2v2', yalnız 4 kişide); alan yoksa 2 / 'tek' (eski istemci). */
 function gKuyrukKalip(d) {
   const kisi = [2, 3, 4].includes(+d.kisi) ? +d.kisi : 2;
-  return { kisi, takim: kisi === 4 && d.takim === '2v2' ? '2v2' : 'tek' };
+  return { kisi, takim: kisi === 4 && d.takim === '2v2' ? '2v2' : 'tek', kurallar: d.kurallar === 1 || d.kurallar === true ? 1 : 0 };   /* kurallar: FARKLI KURALLAR; yok = eski istemci → 0 (can) */
 }
 /** a ile aynı kalıpta (kisi+takim, pv/engel uyumlu, saat dilimi penceresi içinde) en çok a.kisi insanlık grup; a her zaman ilk. */
 function gGrupBul(a, now) {
@@ -428,7 +428,9 @@ function gKuyrukOdasi(grup) {
   const kod = makeCode();
   const oda = { kod, uyeler: grup.map(e => e.ws), basladi: false };
   gOdalar.set(kod, oda); for (const e of grup) e.ws._goda = oda;
-  gBaslat(oda, 'ara', grup[0].kisi > 2 ? { kisi: grup[0].kisi, takim: grup[0].takim } : {});
+  const kural = KURAL.sec(kurallarCfg, 'classic', grup.map(e => e.kurallar), Date.now(), Math.random);   /* FARKLI KURALLAR: gruptaki herkes açıksa ağırlıklı (can 3, diğerleri 1); Godot hızlı eşleşme klasik */
+  stats.kural[kural] = (stats.kural[kural] || 0) + 1;
+  gBaslat(oda, 'ara', { ...(grup[0].kisi > 2 ? { kisi: grup[0].kisi, takim: grup[0].takim } : {}), ...(kural !== 'can' ? { kural } : {}) });
 }
 function gEslestir() {
   const now = Date.now();
