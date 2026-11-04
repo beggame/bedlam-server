@@ -41,12 +41,12 @@ async function paketTara(paket) {
   }
 }
 
-/** Tüm katalog paketlerini tarar; aynı anda yalnız bir tarama. Hata fırlatmaz (istat.hata). */
+/** Play'de yayında olan paketleri tarar (dev paketi Play'de yok, 404 hata sayılmasın); aynı anda yalnız bir tarama. Hata fırlatmaz (istat.hata). */
 async function tara() {
   if (calisiyor) return; calisiyor = true;
   try {
     istat.tarama++;
-    for (const paket of KATALOG.paket) { try { await paketTara(paket); } catch (e) { console.log('[iade] paket hata', paket, e.message); istat.hata++; } }
+    for (const paket of KATALOG.paket.filter(x => !x.endsWith('.godot'))) { try { await paketTara(paket); } catch (e) { console.log('[iade] paket hata', paket, e.message); istat.hata++; } }
   } finally { calisiyor = false; }
 }
 
