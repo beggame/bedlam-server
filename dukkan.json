@@ -1266,12 +1266,11 @@
   },
   {
    "urun": "ilk_paket",
-   "gem": 300,
+   "gem": 350,
    "ogeler": [
     "plaka_kral",
     "aura_kanat_beyaz"
    ],
-   "kutu": "buyuk",
    "tekSefer": true
   },
   {
