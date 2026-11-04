@@ -9,6 +9,7 @@
 //   POST /g/cuzdan/harca  { v:1, kimlik, oge, islem }              → gemle öğe: fiyat sunucu kataloğundan (dukkan.json), işlem kimliğiyle TEK harcama
 //   Hata: { v:1, ok:false, durum: surum | kimlik | gecersiz | yetersiz | zaten_var | tek_sefer | gercek_kapali | bekliyor | iptal | dogrulayici_yok | hata }
 // Eşzamanlılık: her yazım Firestore commit + currentDocument (updateTime / exists:false) ön koşuluyla; çakışmada 3 kez yeniden dener (çift harcama yok).
+// Sürüm 5 iade: iadeUygula(iz, kayit) — Play iade/ters ibraz (g_iade.js tarar) sonrası gem geri alma: satin/<iz> → iade/<iz> (exists:false, çift geri alma yok); bakiye ASLA negatife düşmez (eksik iade/ belgesine yazılır).
 // Ortam: FIREBASE_SERVIS_JSON (yönetici), PLAY_SERVIS_JSON (Play doğrulaması, g_magaza.js), GERCEK_SATIN (kapalı: yalnız test satın alması).
 // ============================================================================
 'use strict';
@@ -72,13 +73,21 @@ async function oku(uid) {
   if (r.status === 404) return { var: false, c: coz({}) }; if (!r.ok) throw new Error('oku ' + r.status);
   const d = await r.json(); return { var: true, updateTime: d.updateTime, c: coz(d.fields) };
 }
+/** Firestore belgesini okur (yol: 'satin/<iz>'); yoksa null; alanlar düz nesne (stringValue / integerValue). */
+async function belgeOku(yol) {
+  const duz = f => Object.fromEntries(Object.entries(f || {}).map(([k, v]) => [k, v.integerValue !== undefined ? +v.integerValue : v.stringValue !== undefined ? v.stringValue : v.booleanValue !== undefined ? v.booleanValue : v]));
+  if (process.env.SAHTE_CUZDAN === '1') { const d = bellek.get(yol); return d ? duz(d.fields) : null; }
+  const t = await erisimJetonu(); const r = await fetch(`${FS}/${yol}`, { headers: { Authorization: 'Bearer ' + t } });
+  if (r.status === 404) return null; if (!r.ok) throw new Error('belgeOku ' + r.status);
+  return duz((await r.json()).fields);
+}
 /** Ön koşullu yazım; çakışmada false döner (çağıran yeniden okur). ek: aynı commit'te oluşturulacak ek belgeler (exists:false). */
 async function yaz(uid, onceki, c, ek = []) {
   if (process.env.SAHTE_CUZDAN === '1') {
     const d = bellek.get('cuzdan/' + uid); if (onceki.var ? (!d || d.updateTime !== onceki.updateTime) : !!d) return 'cakisma';
     for (const e of ek) if (bellek.has(e.yol)) return 'var';
     bellek.set('cuzdan/' + uid, { fields: { gem: deger(c.gem), sahip: deger(c.sahip), islemler: deger(c.islemler.slice(-50)), ilkPaket: deger(c.tek.includes('ilk_paket')), tek: deger(c.tek), kt0: deger(c.kt0 || 0), kgun: deger(c.kgun || ''), kgem: deger(c.kgem || 0) }, updateTime: 'b' + (++bellekSurum) });
-    for (const e of ek) bellek.set(e.yol, {}); return 'ok';
+    for (const e of ek) bellek.set(e.yol, { fields: Object.fromEntries(Object.entries(e.alan).map(([k, v]) => [k, deger(v)])) }); return 'ok';
   }
   const t = await erisimJetonu();
   const writes = [{ update: { name: `${FS_AD}/cuzdan/${uid}`, fields: { gem: deger(c.gem), sahip: deger(c.sahip), islemler: deger(c.islemler.slice(-50)), ilkPaket: deger(c.tek.includes('ilk_paket')), tek: deger(c.tek), kt0: deger(c.kt0 || 0), kgun: deger(c.kgun || ''), kgem: deger(c.kgem || 0) } }, currentDocument: onceki.var ? { updateTime: onceki.updateTime } : { exists: false } }];
@@ -183,4 +192,19 @@ async function ogeEkle(uid, ogeler) {
   }
   return false;
 }
-module.exports = { kur, yolGem, kimlikDogrula, erisimJetonu, istat, ogeEkle, _bellek: bellek };
+/** Play iadesi / ters ibrazı sonrası gem geri alma (g_iade.js çağırır). iz = sha256(jeton) hex. → { durum: alindi | zaten | kayit_yok | urun_yok | cuzdan_yok, gem?, eksik? } */
+async function iadeUygula(iz, kayit = {}) {
+  const satin = await belgeOku(`satin/${iz}`); if (!satin) return { durum: 'kayit_yok' };   // cüzdandan geçmeyen satın alma (örn. Reklamları Kaldır)
+  const gp = GEM_PAKET.get(satin.urun); if (!gp) return { durum: 'urun_yok' }; const uid = satin.uid;
+  for (let deneme = 0; deneme < 3; deneme++) {
+    const w = await oku(uid); if (!w.var) return { durum: 'cuzdan_yok' };   // silinmiş hesap: cüzdan yaratma
+    const c = { ...w.c, sahip: [...w.c.sahip], tek: [...w.c.tek], islemler: [...w.c.islemler] };
+    const al = Math.min(c.gem, gp.gem), eksik = gp.gem - al; c.gem -= al;
+    const og = new Set(gp.ogeler || []); c.sahip = c.sahip.filter(x => !og.has(x)); if (gp.tekSefer) c.tek = c.tek.filter(x => x !== gp.urun);
+    const s = await yaz(uid, w, c, [{ yol: `iade/${iz}`, alan: { uid, urun: satin.urun, gem: al, eksik, t: Date.now(), siparis: kayit.orderId || '', kaynak: kayit.voidedSource ?? '', neden: kayit.voidedReason ?? '' } }]);
+    if (s === 'ok') { console.log(`[cuzdan] IADE -${al} gem (eksik ${eksik}) ${satin.urun} ${String(uid).slice(0, 8)}`); return { durum: 'alindi', gem: al, eksik }; }
+    if (s === 'var') return { durum: 'zaten' };
+  }
+  throw new Error('iade cakisma');
+}
+module.exports = { kur, iadeUygula, yolGem, kimlikDogrula, erisimJetonu, istat, ogeEkle, _bellek: bellek };

@@ -561,6 +561,7 @@ app.get('/g/surum', (req, res) => { res.set('Cache-Control', 'no-store'); res.js
 const gMagaza = require('./g_magaza').kur(app);
 const gHesap = require('./g_hesap').kur(app);   // Faz 7.5 /g/ayar + hesap silme işi
 const gCuzdan = require('./g_cuzdan').kur(app);   // Faz 7.7 gem cüzdanı (/g/cuzdan v1)
+const gIade = require('./g_iade').kur();   // Sürüm 5 Play iadesinde gem geri alma
 const gSosyal = require('./g_sosyal').kur(app);   // Faz 7.8 /g/rapor v1
 const gCokme = require('./g_cokme').kur(app);   // Adım 11 /g/cokme çökme raporu
 
@@ -570,7 +571,7 @@ app.get('/stats', (req, res) => {
   statDay();
   res.set('Cache-Control', 'no-store');
   res.json({
-    godot: { online: gwss.clients.size, kuyruk: gKuyruk.length, odalar: gOdalar.size, ...gStats, minPv: MIN_PV_GODOT, magaza: gMagaza.istat, hesap: gHesap.istat, cuzdan: gCuzdan.istat, sosyal: gSosyal.istat, lig: gLig.istat, cokme: gCokme.istat },
+    godot: { online: gwss.clients.size, kuyruk: gKuyruk.length, odalar: gOdalar.size, ...gStats, minPv: MIN_PV_GODOT, magaza: gMagaza.istat, hesap: gHesap.istat, cuzdan: gCuzdan.istat, iade: gIade.istat, sosyal: gSosyal.istat, lig: gLig.istat, cokme: gCokme.istat },
     online: wss.clients.size, queue: queue.length, rooms: rooms.size,
     today: stats.day, matches: stats.matches, kural: stats.kural, botFills: stats.botFills, peakOnline: stats.peakOnline,
     ice: turnMode(), iceIssued: stats.iceIssued, iceDayCap: ICE_DAY_CAP, turn30dGB: guard.gb, turnCapGB: TURN_MONTH_CAP_GB, turnBlocked: guard.blocked, guardErr: guard.err, uptime: Math.round(process.uptime())

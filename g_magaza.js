@@ -88,4 +88,4 @@ function kur(app, secenek = {}) {
   return { istat };
 }
 
-module.exports = { kur, playDogrula, KATALOG, istat };
+module.exports = { kur, playDogrula, erisimJetonu, KATALOG, istat };
