@@ -323,7 +323,7 @@ wss.on('connection', ws => {
 // sunucu yalnız odayı kurar, sdp/ice mesajlarını röleler, tohum/harita/kadro dağıtır.
 //   → {t:'hello', pv, kimlik, ad, karakter, engel?:[etiket]}   ← {t:'ok', id} | {t:'guncelle', minPv}
 //      pv 2 (Faz 7 K1/K3): kimlik = oyuncu etiketi (rakibe kadroda gider), engel = engellenen etiketler (kuyruk ve oda bunlarla eşleştirmez)
-//   → {t:'cumle', id}                    ← odadaki diğerine {t:'cumle', kimden, id} (hazır cümle; yalnız 0..19, 3 sn'de 1)
+//   → {t:'cumle', id}                    ← odadaki diğerine {t:'cumle', kimden, id} (hazır cümle; yalnız 0..19 ve 1000..1255 = çıkartma, 3 sn'de 1)
 //   → {t:'oda_kur'}                      ← {t:'oda', kod}
 //   → {t:'katil', kod}                   ← {t:'oda', kod}; odadaki herkese {t:'esles', oyuncu, tohum, harita, kadro, tur:'oda', kurucu}
 //      pv 4: özel oda 2–4 kişi (OZEL_KAPASITE). Her katılımda herkese güncel kadro gider (oyuncu = katılış sırası); istemciler
@@ -526,7 +526,7 @@ gwss.on('connection', ws => {
       const y = String(d.yol || ''); if (y in gStats.yol) gStats.yol[y]++;
       console.log(`[g] yol ${y} rtt ${d.rtt | 0} ms (oda ${ws._goda ? ws._goda.kod : '-'})`);
     } else if (d.t === 'cumle') {
-      const oda = ws._goda, id = d.id | 0; if (!oda || id < 0 || id > 19) return;
+      const oda = ws._goda, id = d.id | 0; if (!oda || !((id >= 0 && id <= 19) || (id >= 1000 && id <= 1255))) return;   /* 1000+N: çıkartma kimliği N (emote.json), lobide sataşma çıkartması */
       const t = Date.now(); if (ws._cumleT && t - ws._cumleT < 3000) return; ws._cumleT = t;
       for (const w of oda.uyeler) if (w !== ws) gSend(w, { t: 'cumle', kimden: ws._gid, id });
     } else if (d.t === 'ayril') {

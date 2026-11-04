@@ -22,6 +22,10 @@ const DUKKAN = JSON.parse(fs.readFileSync(path.join(__dirname, 'dukkan.json'), '
 const URUN = new Map(JSON.parse(fs.readFileSync(path.join(__dirname, 'urunler.json'), 'utf8')).urunler.map(u => [u.id, u]));
 const PAKETLER = JSON.parse(fs.readFileSync(path.join(__dirname, 'urunler.json'), 'utf8')).paket;
 const GEM_PAKET = new Map(DUKKAN.gemPaket.map(p => [p.urun, p]));
+/** Setin verilecek parçaları: cüzdanda olmayanlar. Coinle de alınan parça cüzdana yazılmaz; istemcinin parca listesinde yoksa sahip sayılır. */
+const setEksik = (gs, sahip, parca) => gs.ogeler.filter(x => !sahip.includes(x) && (!Array.isArray(parca) || parca.includes(x) || !DUKKAN.fiyat[x]?.coin));
+/** Eksik parçaların set fiyatı: orantılı, 10'a yukarı yuvarlı, tek tek toplamını aşmaz (istemci Dukkan.SetFiyat ile aynı). */
+const setFiyat = (gs, eksik) => { if (eksik.length === gs.ogeler.length) return gs.gem; const ayri = eksik.reduce((t, x) => t + (DUKKAN.fiyat[x]?.gem || 0), 0); return Math.min(ayri, Math.ceil(gs.gem * eksik.length / gs.ogeler.length / 10) * 10); };
 const KUPA = JSON.parse(fs.readFileSync(path.join(__dirname, 'kupa.json'), 'utf8'));   // kupa yolu / kutu gem tabloları (godot/veri/ilerleme.json ile eşit; test_kupa.js)
 /** Kupa yolu adımının gem ödülü (istemcideki Kupa.Odul ile aynı seçim; coin ölçeklemesi gem'i etkilemez). 0 = bu adımda gem yok. */
 function yolGem(idx) {
@@ -139,15 +143,18 @@ function kur(app, secenek = {}) {
   });
   app.post('/g/cuzdan/harca', async (req, res) => {
     const o = await ortak(req, res); if (!o) return; const { d, uid } = o; istat.harca++;
-    const f = DUKKAN.fiyat[d.oge]; if (!f || !f.gem || typeof d.islem !== 'string' || d.islem.length < 6 || d.islem.length > 64) return yanit(res, 400, { ok: false, durum: 'gecersiz' });
+    const gs = (DUKKAN.gemSet || {})[d.oge] || null, f = gs ? { gem: gs.gem } : DUKKAN.fiyat[d.oge];   // gs: gemle alınan öğe seti (dukkan.json gemSet: tek işlemde eksik parçalar, fiyat setEksik/setFiyat; en az 2 parça eksik olmalı)
+    if (!f || !f.gem || typeof d.islem !== 'string' || d.islem.length < 6 || d.islem.length > 64) return yanit(res, 400, { ok: false, durum: 'gecersiz' });
     try {
       for (let deneme = 0; deneme < 3; deneme++) {
         const w = await oku(uid); const c = { ...w.c, sahip: [...w.c.sahip], tek: [...w.c.tek], islemler: [...w.c.islemler] };
         if (c.islemler.includes('h:' + d.islem)) return yanit(res, 200, { ok: true, durum: 'zaten', ...cuzdanYanit(c) });
-        if (c.sahip.includes(d.oge)) return yanit(res, 200, { ok: false, durum: 'zaten_var', ...cuzdanYanit(c) });
-        if (c.gem < f.gem) return yanit(res, 200, { ok: false, durum: 'yetersiz', ...cuzdanYanit(c) });
-        c.gem -= f.gem; c.sahip.push(d.oge); c.islemler.push('h:' + d.islem);
-        if (await yaz(uid, w, c) === 'ok') { console.log(`[cuzdan] -${f.gem} gem ${d.oge} ${uid.slice(0, 8)}`); return yanit(res, 200, { ok: true, durum: 'alindi', ...cuzdanYanit(c) }); }
+        const eksik = gs ? setEksik(gs, c.sahip, d.parca) : null, tutar = gs ? setFiyat(gs, eksik) : f.gem;
+        if (gs ? eksik.length < 2 : c.sahip.includes(d.oge)) return yanit(res, 200, { ok: false, durum: 'zaten_var', ...cuzdanYanit(c) });
+        if (gs && d.fiyat !== undefined && d.fiyat !== tutar) return yanit(res, 200, { ok: false, durum: 'fiyat_degisti', ...cuzdanYanit(c) });   // ekrandaki fiyattan farklı gem düşülmez
+        if (c.gem < tutar) return yanit(res, 200, { ok: false, durum: 'yetersiz', ...cuzdanYanit(c) });
+        c.gem -= tutar; if (gs) c.sahip.push(...eksik); else c.sahip.push(d.oge); c.islemler.push('h:' + d.islem);
+        if (await yaz(uid, w, c) === 'ok') { console.log(`[cuzdan] -${tutar} gem ${d.oge} ${uid.slice(0, 8)}`); return yanit(res, 200, { ok: true, durum: 'alindi', ...cuzdanYanit(c) }); }
       }
       return yanit(res, 409, { ok: false, durum: 'hata' });
     } catch (e) { console.log('[cuzdan] harca hata', e.message); return yanit(res, 502, { ok: false, durum: 'hata' }); }
