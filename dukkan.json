@@ -894,17 +894,21 @@
    "coin": 1500,
    "gem": 50
   },
-  "cik_bebek": {
+  "cik_bas_yukari": {
    "coin": 800,
    "gem": 25
+  },
+  "cik_saskin": {
+   "coin": 800,
+   "gem": 25
+  },
+  "cik_goz_devir": {
+   "coin": 1500,
+   "gem": 50
   },
   "cik_tuz": {
    "coin": 1500,
    "gem": 50
-  },
-  "cik_aglama": {
-   "coin": 800,
-   "gem": 25
   },
   "cik_uyku": {
    "coin": 800,
@@ -931,10 +935,6 @@
    "gem": 50
   },
   "cik_sus": {
-   "coin": 1500,
-   "gem": 50
-  },
-  "cik_gozluk": {
    "coin": 1500,
    "gem": 50
   },
