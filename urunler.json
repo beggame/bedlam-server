@@ -16,42 +16,42 @@
   {
    "id": "gem_100",
    "tur": "tuketilir",
-   "gem": 100,
-   "ad": "100 GEM",
+   "gem": 20,
+   "ad": "20 GEM",
    "yedekFiyat": ""
   },
   {
    "id": "gem_550",
    "tur": "tuketilir",
-   "gem": 550,
-   "ad": "550 GEM",
+   "gem": 110,
+   "ad": "110 GEM",
    "yedekFiyat": ""
   },
   {
    "id": "gem_1200",
    "tur": "tuketilir",
-   "gem": 1200,
-   "ad": "1200 GEM",
+   "gem": 240,
+   "ad": "240 GEM",
    "yedekFiyat": ""
   },
   {
    "id": "gem_2600",
    "tur": "tuketilir",
-   "gem": 2600,
-   "ad": "2600 GEM",
+   "gem": 520,
+   "ad": "520 GEM",
    "yedekFiyat": ""
   },
   {
    "id": "gem_7000",
    "tur": "tuketilir",
-   "gem": 7000,
-   "ad": "7000 GEM",
+   "gem": 1400,
+   "ad": "1400 GEM",
    "yedekFiyat": ""
   },
   {
    "id": "ilk_paket",
    "tur": "tuketilir",
-   "gem": 350,
+   "gem": 70,
    "ad": "İLK PAKET",
    "yedekFiyat": ""
   },

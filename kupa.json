@@ -3,7 +3,7 @@
  "kupaYolu": {
   "adim": 5,
   "coinArtis": 0.03,
-  "gemYerineCoin": 40,
+  "gemYerineCoin": 180,
   "varsayilan": "temel",
   "sablonlar": {
    "temel": [
@@ -31,7 +31,7 @@
      "coin": 35
     },
     {
-     "gem": 3
+     "gem": 1
     },
     {
      "coin": 50
@@ -48,7 +48,7 @@
      "kutu": "kucuk"
     },
     {
-     "gem": 6
+     "gem": 1
     },
     {
      "kutu": "kucuk"
@@ -71,15 +71,15 @@
  },
  "kutuGem": {
   "kucuk": {
-   "min": 2,
-   "max": 4
+   "min": 1,
+   "max": 1
   },
   "buyuk": {
-   "min": 8,
-   "max": 15
+   "min": 2,
+   "max": 3
   }
  },
- "gunlukKutuGem": 30,
+ "gunlukKutuGem": 6,
  "yolTaban": 60,
  "yolGun": 25
 }

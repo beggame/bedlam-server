@@ -68,7 +68,9 @@ async function kimlikDogrula(idJeton) {
 const deger = v => typeof v === 'number' ? { integerValue: String(v) } : typeof v === 'boolean' ? { booleanValue: v } : Array.isArray(v) ? { arrayValue: { values: v.map(x => ({ stringValue: String(x) })) } } : { stringValue: String(v) };
 /** Alınmış tek seferlik ürün kimlikleri; eski belgede yalnız ilkPaket:true varsa ilk_paket sayılır (geriye uyum). */
 const tekCoz = f => { const l = (f?.tek?.arrayValue?.values || []).map(x => x.stringValue); if (f?.ilkPaket?.booleanValue && !l.includes('ilk_paket')) l.push('ilk_paket'); return l; };
-const coz = f => ({ gem: +(f?.gem?.integerValue || 0), sahip: (f?.sahip?.arrayValue?.values || []).map(x => x.stringValue), islemler: (f?.islemler?.arrayValue?.values || []).map(x => x.stringValue), tek: tekCoz(f), kt0: +(f?.kt0?.integerValue || 0), kgun: f?.kgun?.stringValue || '', kgem: +(f?.kgem?.integerValue || 0) });
+const OLCEK = 5;   // 2026-11-07 gem ölçeği: fiyat ve bakiyeler 5'e bölündü. olcek alanı olmayan eski cüzdan okunurken yukarı yuvarlanarak çevrilir, ilk yazımda kalıcı olur.
+const olcekle = c => { if (c.olcek !== OLCEK) { c.gem = Math.ceil(c.gem / OLCEK); c.kgem = Math.ceil((c.kgem || 0) / OLCEK); c.olcek = OLCEK; } return c; };
+const coz = f => olcekle({ olcek: +(f?.olcek?.integerValue || 0), gem: +(f?.gem?.integerValue || 0), sahip: (f?.sahip?.arrayValue?.values || []).map(x => x.stringValue), islemler: (f?.islemler?.arrayValue?.values || []).map(x => x.stringValue), tek: tekCoz(f), kt0: +(f?.kt0?.integerValue || 0), kgun: f?.kgun?.stringValue || '', kgem: +(f?.kgem?.integerValue || 0) });
 // SAHTE_CUZDAN=1: YALNIZ YEREL GELİŞTİRME — Firestore yerine bellek deposu (aynı ön koşul anlamı); kimlik doğrulaması gerçek kalır. Render'da ASLA açılmaz.
 const bellek = new Map(); let bellekSurum = 0;
 async function oku(uid) {
@@ -90,11 +92,11 @@ async function yaz(uid, onceki, c, ek = []) {
   if (process.env.SAHTE_CUZDAN === '1') {
     const d = bellek.get('cuzdan/' + uid); if (onceki.var ? (!d || d.updateTime !== onceki.updateTime) : !!d) return 'cakisma';
     for (const e of ek) if (bellek.has(e.yol)) return 'var';
-    bellek.set('cuzdan/' + uid, { fields: { gem: deger(c.gem), sahip: deger(c.sahip), islemler: deger(c.islemler.slice(-50)), ilkPaket: deger(c.tek.includes('ilk_paket')), tek: deger(c.tek), kt0: deger(c.kt0 || 0), kgun: deger(c.kgun || ''), kgem: deger(c.kgem || 0) }, updateTime: 'b' + (++bellekSurum) });
+    bellek.set('cuzdan/' + uid, { fields: { olcek: deger(OLCEK), gem: deger(c.gem), sahip: deger(c.sahip), islemler: deger(c.islemler.slice(-50)), ilkPaket: deger(c.tek.includes('ilk_paket')), tek: deger(c.tek), kt0: deger(c.kt0 || 0), kgun: deger(c.kgun || ''), kgem: deger(c.kgem || 0) }, updateTime: 'b' + (++bellekSurum) });
     for (const e of ek) bellek.set(e.yol, { fields: Object.fromEntries(Object.entries(e.alan).map(([k, v]) => [k, deger(v)])) }); return 'ok';
   }
   const t = await erisimJetonu();
-  const writes = [{ update: { name: `${FS_AD}/cuzdan/${uid}`, fields: { gem: deger(c.gem), sahip: deger(c.sahip), islemler: deger(c.islemler.slice(-50)), ilkPaket: deger(c.tek.includes('ilk_paket')), tek: deger(c.tek), kt0: deger(c.kt0 || 0), kgun: deger(c.kgun || ''), kgem: deger(c.kgem || 0) } }, currentDocument: onceki.var ? { updateTime: onceki.updateTime } : { exists: false } }];
+  const writes = [{ update: { name: `${FS_AD}/cuzdan/${uid}`, fields: { olcek: deger(OLCEK), gem: deger(c.gem), sahip: deger(c.sahip), islemler: deger(c.islemler.slice(-50)), ilkPaket: deger(c.tek.includes('ilk_paket')), tek: deger(c.tek), kt0: deger(c.kt0 || 0), kgun: deger(c.kgun || ''), kgem: deger(c.kgem || 0) } }, currentDocument: onceki.var ? { updateTime: onceki.updateTime } : { exists: false } }];
   for (const e of ek) writes.push({ update: { name: `${FS_AD}/${e.yol}`, fields: Object.fromEntries(Object.entries(e.alan).map(([k, v]) => [k, deger(v)])) }, currentDocument: { exists: false } });
   const r = await fetch(`${FS}:commit`, { method: 'POST', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: JSON.stringify({ writes }) });
   if (r.ok) return 'ok'; if (r.status === 409 || r.status === 400 || r.status === 412) { const j = await r.json().catch(() => ({})); return /ALREADY_EXISTS|already exists/i.test(JSON.stringify(j)) ? 'var' : 'cakisma'; }
@@ -109,6 +111,7 @@ function kur(app, secenek = {}) {
   async function ortak(req, res) {
     res.set('Cache-Control', 'no-store'); const d = req.body || {};
     if (d.v !== 1) { yanit(res, 400, { ok: false, durum: 'surum', destek: [1] }); return null; }
+    if (!req.path.endsWith('/cuzdan') && d.olcek !== OLCEK) { yanit(res, 200, { ok: false, durum: 'guncelle' }); return null; }   // eski ölçekli istemci harcayamaz ve yükleyemez; bakiye okuması serbest
     if (!process.env.FIREBASE_SERVIS_JSON && process.env.SAHTE_CUZDAN !== '1') { yanit(res, 503, { ok: false, durum: 'dogrulayici_yok' }); return null; }
     try { return { d, uid: await kimlikDogrula(d.kimlik) }; } catch (e) { yanit(res, 401, { ok: false, durum: 'kimlik' }); return null; }
   }
