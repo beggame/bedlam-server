@@ -1,7 +1,7 @@
 // ============================================================================
 // BEDLAM Godot — hesap ve uzaktan ayar uçları (Faz 7.5; godot/PLAN.md §7b). server.js: require('./g_hesap').kur(app)
 //
-// GET /g/ayar   (v1) uzaktan ayar / bakım: { v:1, bakim, mesaj, minPv }  (AYAR_BAKIM=1, AYAR_MESAJ, MIN_PV_GODOT ortam değişkenleri)
+// GET /g/ayar   (v1) uzaktan ayar / bakım: { v:1, t (sunucu saati, ms), bakim, mesaj, minPv }  (AYAR_BAKIM=1, AYAR_MESAJ, MIN_PV_GODOT ortam değişkenleri)
 // Hesap silme işi: istemci kullanici/<uid>.silmeIstegi = ms yazar (oyunda AYARLAR › PROFİL › HESABI SİL; iptal = 0).
 //   7 günü geçen istekler için: kullanici/<uid>, etiket/<ETİKET>, liderlik/<uid> belgeleri ve Firebase Auth kullanıcısı silinir.
 //   Ortam: FIREBASE_SERVIS_JSON (Firebase Admin servis hesabı; Datastore + Identity Toolkit yetkisi). Yoksa iş çalışmaz (günlüğe yazar).
@@ -27,6 +27,26 @@ async function erisimJetonu() {
 }
 
 const istat = { silinen: 0, tur: 0, hata: 0, son: '' };
+/** koleksiyonda alan == uid olan belgelerin tam adları (en çok 500). */
+async function uidBelgeleri(H, koleksiyon, uid, alan = 'uid') {
+  const q = { structuredQuery: { from: [{ collectionId: koleksiyon }], where: { fieldFilter: { field: { fieldPath: alan }, op: 'EQUAL', value: { stringValue: uid } } }, limit: 500 } };
+  const r = await fetch(FS + ':runQuery', { method: 'POST', headers: H, body: JSON.stringify(q) });
+  if (!r.ok) throw new Error(koleksiyon + ' sorgu ' + r.status);
+  return (await r.json()).filter(e => e.document).map(e => e.document.name);
+}
+/** Hesap verisi: cuzdan/lig doğrudan, odul/<uid>_* sorguyla silinir; satin/* ve iade/* belgeleri KALIR (jeton tekrar kullanımını engeller) ama uid alanı kaldırılır (anonim). */
+async function hesapVerisiTemizle(H, uid) {
+  const sil = async ad => { const s = await fetch(ad.startsWith('http') ? ad : `${FS}/${ad}`, { method: 'DELETE', headers: H }); if (!s.ok && s.status !== 404) throw new Error(ad.split('/').slice(-2).join('/') + ' ' + s.status); };
+  await sil(`cuzdan/${uid}`); await sil(`lig/${uid}`);
+  for (let tur = 0; tur < 20; tur++) { const l = await uidBelgeleri(H, 'odul', uid); if (!l.length) break; for (const ad of l) await sil('https://firestore.googleapis.com/v1/' + ad); }
+  /* satin/iade: uid kaldırılır. satin.ilkUid (gemi alan hesap) BOŞ dizgeye çekilir, silinmez: alan yoksa iadeUygula uid'ye düşerdi; boş = silinmiş hesap → cuzdan_yok */
+  for (const [k, alan] of [['satin', 'uid'], ['iade', 'uid'], ['satin', 'ilkUid']]) {
+    for (let tur = 0; tur < 20; tur++) {
+      const l = await uidBelgeleri(H, k, uid, alan); if (!l.length) break;
+      for (const ad of l) { const s = await fetch('https://firestore.googleapis.com/v1/' + ad + '?updateMask.fieldPaths=' + alan, { method: 'PATCH', headers: H, body: JSON.stringify({ fields: alan === 'ilkUid' ? { ilkUid: { stringValue: '' } } : {} }) }); if (!s.ok && s.status !== 404) throw new Error(k + ' anonim ' + s.status); }   /* maskede olup gövdede olmayan alan silinir */
+    }
+  }
+}
 /** Süresi dolan silme isteklerini işler; silinen uid listesi döner. */
 async function silmeTuru(simdi = Date.now()) {
   if (!process.env.FIREBASE_SERVIS_JSON) { istat.son = 'servis yok'; return []; }
@@ -40,11 +60,13 @@ async function silmeTuru(simdi = Date.now()) {
     if (!istek || simdi - istek < BEKLEME_MS) continue;
     const uid = d.name.split('/').pop(), etiket = f.etiket?.stringValue;
     try {
-      for (const yol of [`kullanici/${uid}`, `liderlik/${uid}`, ...(etiket ? [`etiket/${etiket}`] : [])]) {
+      await hesapVerisiTemizle(H, uid);   /* hata verirse kullanici/<uid> kalır → bir sonraki turda yeniden denenir */
+      for (const yol of [`liderlik/${uid}`, ...(etiket ? [`etiket/${etiket}`] : [])]) {
         const s = await fetch(`${FS}/${yol}`, { method: 'DELETE', headers: H }); if (!s.ok && s.status !== 404) throw new Error(yol + ' ' + s.status);
       }
       const a = await fetch(`https://identitytoolkit.googleapis.com/v1/projects/${PROJE}/accounts:delete`, { method: 'POST', headers: H, body: JSON.stringify({ localId: uid }) });
       if (!a.ok && a.status !== 400) throw new Error('auth ' + a.status);
+      { const s = await fetch(`${FS}/kullanici/${uid}`, { method: 'DELETE', headers: H }); if (!s.ok && s.status !== 404) throw new Error('kullanici ' + s.status); }   /* en son: istek işaretçisi, tüm adımlar bitince kalkar */
       silinen.push(uid); istat.silinen++; console.log('[hesap] silindi', uid.slice(0, 8));
     } catch (er) { istat.hata++; console.log('[hesap] silme hatası', uid.slice(0, 8), er.message); }
   }
@@ -54,7 +76,7 @@ async function silmeTuru(simdi = Date.now()) {
 function kur(app) {
   app.get('/g/ayar', (req, res) => {
     res.set('Cache-Control', 'no-store');
-    res.json({ v: 1, bakim: process.env.AYAR_BAKIM === '1', mesaj: process.env.AYAR_MESAJ || '', minPv: Number(process.env.MIN_PV_GODOT) || 0 });
+    res.json({ v: 1, t: Date.now(), bakim: process.env.AYAR_BAKIM === '1', mesaj: process.env.AYAR_MESAJ || '', minPv: Number(process.env.MIN_PV_GODOT) || 0 });
   });
   if (process.env.NODE_ENV !== 'test') {
     const dongu = () => silmeTuru().catch(e => { istat.hata++; console.log('[hesap] tur hatası', e.message); });

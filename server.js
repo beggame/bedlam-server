@@ -14,17 +14,72 @@
 //   BOT_FILL_MS   (varsayılan 15000)   → bu kadar beklenince istemciye "botla oyna" denir
 //   KEEP_AWAKE=1                       → Render ücretsiz planda uyumamak için kendi adresine 10 dk'da bir istek
 // ============================================================================
+require('./uretim_kontrol').uygula();   // Render/production + SAHTE_SATIN/SAHTE_CUZDAN/LIG_SART_ATLA=1 → açık hata, çıkış 1
 const http = require('http');
+const crypto = require('crypto');
 const express = require('express');
 const { ExpressPeerServer } = require('peer');
 const { WebSocketServer } = require('ws');
 
+const { hizAsildi } = require('./g_magaza');
 const PORT = process.env.PORT || 9000;
 const BOT_FILL_MS = +(process.env.BOT_FILL_MS || 15000);
 const MIN_PV = Number(process.env.MIN_PV) || 315; // en dusuk desteklenen ag protokol surumu (istemci NET_PV); altindakiler cevrimici oynayamaz -> GUNCELLE
 const app = express();
-app.set('trust proxy', true);
+app.set('trust proxy', 1);
+app.use((req, res, next) => { try { Object.defineProperty(req, 'ip', { value: gercekIp(req), configurable: true }); } catch (e) {} next(); });   /* g_* modülleri req.ip okur: hepsi aynı IP kuralını kullansın */   // Render önünde tek proxy: req.ip = proxy'nin eklediği son X-Forwarded-For girdisi (istemci başlıkları taklit edemez)
 app.use((req, res, next) => { res.set('Access-Control-Allow-Origin', '*'); next(); });
+const iadeTembel = require('./g_iade');
+app.use((req, res, next) => { try { iadeTembel.tembelTara(); } catch (e) {} next(); });   /* tembel iade taraması: uyuyan sunucuda zamanlayıcı kaçarsa istek tetikler (isteği bekletmez; PLAY_SERVIS_JSON yoksa no-op) */
+
+// ---- Çökme koruması + ortak yardımcılar ------------------------------------
+let yakalanmayan = 0;   /* /stats: süreç ayakta kalsa da sayılır */
+process.on('uncaughtException', e => { yakalanmayan++; try { console.log('[HATA] uncaughtException', e && e.stack || e); } catch (_) {} });
+process.on('unhandledRejection', e => { yakalanmayan++; try { console.log('[HATA] unhandledRejection', e && e.stack || e); } catch (_) {} });
+/** Zamanlayıcı / geri çağrı sarmalayıcı: hata günlüğe yazılır, süreç düşmez. */
+function guvenli(ad, fn) { return (...a) => { try { const r = fn(...a); if (r && typeof r.catch === 'function') r.catch(e => console.log('[HATA]', ad, e && e.message)); return r; } catch (e) { console.log('[HATA]', ad, e && e.stack || e); } }; }
+/** ws yükseltme isteği için istemci IP'si (express dışı): gercekIp ile aynı kural. */
+function wsIp(req) {
+  return gercekIp(req);
+}
+/** İstemci IP'si (express ve ws için tek kural). Render önünde Cloudflare var: cf-connecting-ip'i Cloudflare her istekte kendisi yazar (istemci taklit edemez).
+ *  IP_KAYNAK=xff ile yalnız X-Forwarded-For'un son girdisi kullanılır (Cloudflare yoksa). true-client-ip'e güvenilmez. İlk 3 istekte kaynak başlıklar (son hane maskeli) günlüğe düşer: doğrulama için. */
+let ipTani = 0;
+function gercekIp(req) {
+  const h = (req && req.headers) || {}, cf = h['cf-connecting-ip'], x = h['x-forwarded-for'], sok = (req.socket && req.socket.remoteAddress) || '?';
+  const mask = v => String(v || '-').replace(/[0-9a-f]+$/i, '*').slice(0, 80);
+  if (ipTani < 3) { ipTani++; console.log('[ip] tanı: cf', mask(cf), '| xff', mask(x), '| soket', mask(sok)); }
+  if (process.env.IP_KAYNAK !== 'xff' && typeof cf === 'string' && cf.trim()) return cf.trim().slice(0, 64);
+  if (typeof x === 'string' && x.trim()) { const l = x.split(','); return l[l.length - 1].trim().slice(0, 64) || '?'; }
+  return sok;
+}
+const WS_IP_EN_COK = Number(process.env.WS_IP_EN_COK) || 32;           // IP başına eşzamanlı ws bağlantısı (/mm + /g/sig toplam)
+const WS_MSG_HIZ = 30, WS_MSG_PATLAMA = 60;   // bağlantı başına mesaj kovası: saniyede 30, en çok 60'lık patlama
+const ipBaglanti = new Map();
+/** Bağlantı başına mesaj kovası; aşan bağlantı 1008 ile kapatılır. true = devam. */
+function mesajKovasi(ws) {
+  const t = Date.now();
+  if (ws._kv == null) { ws._kv = WS_MSG_PATLAMA; ws._kvT = t; }
+  ws._kv = Math.min(WS_MSG_PATLAMA, ws._kv + (t - ws._kvT) / 1000 * WS_MSG_HIZ); ws._kvT = t;
+  if (ws._kv < 1) { console.log('[ws] mesaj sınırı aşıldı, bağlantı kapatılıyor:', ws._ip); try { ws.close(1008, 'hiz'); } catch (e) {} return false; }
+  ws._kv -= 1; return true;
+}
+/** Başarısız kod denemesi sınırı: bağlantı + IP başına dakikada 10; aşılırsa true (çağıran bağlantıyı kapatır). */
+const ipDeneme = new Map();
+function denemeAsildi(ws) {
+  const t = Date.now(), sinir = 10, pen = 60000;
+  const say = o => (!o || t - o.bas >= pen) ? { bas: t, n: 0 } : o;
+  ws._dn = say(ws._dn); ws._dn.n++;
+  const k = say(ipDeneme.get(ws._ip)); k.n++; ipDeneme.set(ws._ip, k);
+  if (ipDeneme.size > 20000) ipDeneme.clear();
+  return ws._dn.n > sinir || k.n > sinir;
+}
+setInterval(() => { const t = Date.now(); for (const [ip, k] of ipDeneme) if (t - k.bas >= 60000) ipDeneme.delete(ip); }, 60000).unref();
+/** Ham mesajı ayrıştır: yalnız düz nesne kabul edilir (null, dizi, sayı, dize → null). */
+function mesajAyristir(raw) {
+  let d; try { d = JSON.parse(raw); } catch (e) { return null; }
+  return (!d || typeof d !== 'object' || Array.isArray(d)) ? null : d;
+}
 
 const KURAL = require('./kural'); const kurallarCfg = KURAL.yukle();
 const stats = { day: '', matches: 0, botFills: 0, peakOnline: 0, iceIssued: 0, kural: {} };
@@ -131,8 +186,8 @@ async function fetchIce(mode) {
   }
   return STUN_ONLY;
 }
-function clientIp(req) { // Render önünde Cloudflare var: bu başlıkları istemci taklit edemez
-  return req.get('cf-connecting-ip') || req.get('true-client-ip') || req.ip || '?';
+function clientIp(req) { /* gercekIp ile aynı kural (cf-connecting-ip, yoksa XFF son girdi) */
+  return gercekIp(req);
 }
 function ipAllowed(ip) {
   const now = Date.now(), arr = (ipHits.get(ip) || []).filter(t => now - t < 3600e3);
@@ -172,9 +227,12 @@ const ALL_MODES = ['classic', 'train', 'climb'];
 const MODE_W = { classic: 0.6, train: 0.2, climb: 0.2 };
 let queue = []; // {ws, pv, size, modes:Set, tz, bot, t0}
 
-function makeCode() {
+function makeCode() {   // crypto.randomInt; 4 karakter, aynı alfabe; mevcut odalarla (gOdalar + /mm rooms) çakışırsa yeniden üret
   let c = '';
-  for (let i = 0; i < 4; i++) c += MM_ALPHABET[Math.floor(Math.random() * MM_ALPHABET.length)];
+  for (let k = 0; k < 200; k++) {
+    c = ''; for (let i = 0; i < 4; i++) c += MM_ALPHABET[crypto.randomInt(MM_ALPHABET.length)];
+    if (!(typeof gOdalar !== 'undefined' && gOdalar.has(c)) && !rooms.has(c)) return c;
+  }
   return c;
 }
 function send(ws, obj) { try { if (ws.readyState === 1) ws.send(JSON.stringify(obj)); } catch (e) {} }
@@ -237,7 +295,7 @@ function tryMatch() {
   }
   if (changed) broadcastWaiting();
 }
-setInterval(tryMatch, 1000); // bekleme süresiyle genişleyen kurallar için düzenli tarama
+setInterval(guvenli('tryMatch', tryMatch), 1000); // bekleme süresiyle genişleyen kurallar için düzenli tarama
 
 // ---- 4) Host göçü oda kanalı ----------------------------------------------
 // istemciler {t:'room-join', code} ile odaya abone olur; yeni host {t:'host-migrate', code} gönderir;
@@ -256,27 +314,37 @@ const peerUpgradeListeners = server.listeners('upgrade').slice();
 server.removeAllListeners('upgrade');
 server.on('upgrade', (req, socket, head) => {
   const url = (req.url || '').split('?')[0];
-  if (url === '/mm') wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req));
-  else if (url === '/g/sig') gwss.handleUpgrade(req, socket, head, ws => gwss.emit('connection', ws, req));
+  if (url === '/mm' || url === '/g/sig') {
+    const ip = wsIp(req), n = ipBaglanti.get(ip) || 0;
+    if (n >= WS_IP_EN_COK) { console.log('[ws] IP bağlantı sınırı:', ip); try { socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n'); } catch (e) {} socket.destroy(); return; }
+    ipBaglanti.set(ip, n + 1);
+    socket.once('close', () => { const k = (ipBaglanti.get(ip) || 1) - 1; if (k <= 0) ipBaglanti.delete(ip); else ipBaglanti.set(ip, k); });
+    const hedef = url === '/mm' ? wss : gwss;
+    hedef.handleUpgrade(req, socket, head, ws => { ws._ip = ip; hedef.emit('connection', ws, req); });
+  }
   else for (const fn of peerUpgradeListeners) fn.call(server, req, socket, head);
 });
 
 function measureRtt(ws) {
+  const pongSinir = (ws._goda && ws._goda.basladi) ? (Number(process.env.WS_PONG_MAC_MS) || 10000) : (Number(process.env.WS_PONG_LOBI_MS) || 120000);   /* lobide/kuyrukta arka plana alınan uygulama (kod paylaşımı) atılmaz; yalnız başlamış maçta 10 sn */
+  if (ws._sonPong && Date.now() - ws._sonPong > pongSinir) { console.log('[ws] pong yok, bağlantı kesiliyor:', ws._ip); try { ws.terminate(); } catch (e) {} return; }   // terminate → 'close' olağan akışla tetiklenir (askı/devam korunur)
   ws._pingT = Date.now();
   try { ws.ping(); } catch (e) {}
 }
 wss.on('connection', ws => {
-  ws._rooms = new Set();
+  ws._rooms = new Set(); ws._sonPong = Date.now();
   ws.on('pong', () => {
+    ws._sonPong = Date.now();
     const r = Date.now() - ws._pingT;
     ws._rtt = ws._rtt == null ? r : Math.round(ws._rtt * 0.5 + r * 0.5);
   });
   measureRtt(ws);
-  ws._rttT = setInterval(() => measureRtt(ws), 3000);
+  ws._rttT = setInterval(guvenli('measureRtt', () => measureRtt(ws)), 3000);
   statDay(); stats.peakOnline = Math.max(stats.peakOnline, wss.clients.size);
 
-  ws.on('message', raw => {
-    let d; try { d = JSON.parse(raw); } catch (e) { return; }
+  ws.on('message', raw => { try {
+    if (!mesajKovasi(ws)) return;
+    const d = mesajAyristir(raw); if (!d) return;
     if (typeof d.code === 'string') d.code = d.code.toUpperCase().slice(0, 8); // canlı v1 ile aynı: kod büyük harf
     if (d.t === 'find') {
       if ((d.pv | 0) < MIN_PV) { send(ws, { t: 'guncelle', minPv: MIN_PV }); return; }
@@ -299,12 +367,14 @@ wss.on('connection', ws => {
     } else if (d.t === 'ping') {
       send(ws, { t: 'pong' });
     } else if (d.t === 'room-join' && typeof d.code === 'string' && d.code.length <= 8) {
+      if (!ws._rooms.has(d.code) && ws._rooms.size >= 4) return;   /* bağlantı başına en çok 4 oda */
+      if (!ws._rooms.has(d.code) && denemeAsildi(ws)) { try { ws.close(1008, 'hiz'); } catch (e) {} return; }   /* oda kodu deneme taraması: dakikada 10 yeni oda */
       roomAdd(ws, d.code);
     } else if (d.t === 'host-migrate' && typeof d.code === 'string' && d.code.length <= 8) {
-      roomAdd(ws, d.code);
-      for (const m of rooms.get(d.code)) if (m !== ws) send(m, { t: 'host-migrated', code: d.code });
+      if (!ws._rooms.has(d.code)) return;   /* yalnız o odadaki bağlantıdan gelen göç yayılır */
+      for (const m of rooms.get(d.code) || []) if (m !== ws) send(m, { t: 'host-migrated', code: d.code });
     }
-  });
+  } catch (e) { console.log('[HATA] /mm mesaj', e && e.stack || e); } });
   const bye = () => {
     clearInterval(ws._rttT);
     if (dropFromQueue(ws)) broadcastWaiting();
@@ -351,7 +421,7 @@ const G_ASKI_MS = +(process.env.G_ASKI_MS || 15000);
 // G_SESSIZ_MS mesaj gelmezse soketi kapatılır → olağan askı (G_ASKI_MS) → ayrildi: kalan oyuncu maçı kazanır (eskiden kimse bilmezdi, iki taraf da "Rakipten haber yok").
 const G_SESSIZ_MS = +(process.env.G_SESSIZ_MS || 8000);
 const gJeton = new Map();   // devam jetonu → üye soketi (canlı ya da askıda)
-function gYeniJeton() { let j = ''; for (let i = 0; i < 24; i++) j += MM_ALPHABET[Math.floor(Math.random() * MM_ALPHABET.length)]; return j; }
+function gYeniJeton() { let j = ''; for (let i = 0; i < 24; i++) j += MM_ALPHABET[crypto.randomInt(MM_ALPHABET.length)]; return j; }
 /** pv 5: eski üyenin kimliğini, odasını ve jetonunu yeni sokete devret (askıdaki ya da hâlâ açık görünen eski soket). */
 function gDevret(eski, yeni) {
   for (const k of ['_gid', '_ad', '_kimlik', '_karakter', '_engel', '_pv', '_jeton']) yeni[k] = eski[k];
@@ -363,7 +433,7 @@ function gDevret(eski, yeni) {
 }
 
 function gSend(ws, o) { try { if (ws.readyState === 1) ws.send(JSON.stringify(o)); } catch (e) {} }
-function gTohum() { return Math.floor(Math.random() * 0x7fffffff) * 2 + Math.floor(Math.random() * 2); }
+function gTohum() { return crypto.randomInt(0x7fffffff) * 2 + crypto.randomInt(2); }
 function gKadro(uyeler) { return uyeler.map(w => ({ id: w._gid, ad: w._ad, karakter: w._karakter || 'kivilcim', etiket: w._kimlik || '' })); }
 // Faz 7 K3: iki taraftan biri diğerini engellediyse eşleşmez; farklı pv hiç eşleşmez (AG.md §10 sürüm kuralı)
 function gEngelli(a, b) { return (!!b._kimlik && a._engel && a._engel.has(b._kimlik)) || (!!a._kimlik && b._engel && b._engel.has(a._kimlik)); }
@@ -455,27 +525,29 @@ function gEslestir() {
   }
   if (degisti) gKuyrukYayin();
 }
-setInterval(gEslestir, 1000);
-setInterval(() => {   /* yalnız başlamış, başka üyesi olan odada ve jetonlu (pv 5, nabız atan) üyede: lobide arka plana alınan uygulama ya da rakibi gitmiş tek kalan (artık nabız atmaz) atılmaz */
+setInterval(guvenli('gEslestir', gEslestir), 1000);
+setInterval(guvenli('sessiz', () => {   /* yalnız başlamış, başka üyesi olan odada ve jetonlu (pv 5, nabız atan) üyede: lobide arka plana alınan uygulama ya da rakibi gitmiş tek kalan (artık nabız atmaz) atılmaz */
   const t = Date.now();
   for (const ws of gwss.clients) if (ws._goda && ws._goda.basladi && ws._goda.uyeler.length > 1 && ws._jeton && !ws._bitti && t - ws._sonT > G_SESSIZ_MS) { console.log(`[g] sessiz soket (${t - ws._sonT} ms): üye ${ws._gid} oda ${ws._goda.kod}`); ws.terminate(); }
-}, 1000);
+}), 1000);
 // Faz 7.6 dereceli lig (K2): ayrı kuyruk, puan/sonuç sunucuda (g_lig.js)
 const gLig = require('./g_lig').kur(app, { gonder: gSend, uyumlu: gUyumlu, odaBaslat: (a, b, ek) => { const kod = makeCode(); const oda = { kod, uyeler: [a, b], basladi: false }; gOdalar.set(kod, oda); a._goda = oda; b._goda = oda; gBaslat(oda, 'dereceli', ek); } });
 
 gwss.on('connection', ws => {
-  ws._gid = gId++; ws._ad = 'Oyuncu'; ws._goda = null; ws._hello = false; ws._sonT = Date.now();
-  ws.on('pong', () => { const r = Date.now() - ws._pingT; ws._rtt = ws._rtt == null ? r : Math.round(ws._rtt * 0.5 + r * 0.5); });
-  measureRtt(ws); ws._rttT = setInterval(() => measureRtt(ws), 3000);
+  ws._gid = gId++; ws._ad = 'Oyuncu'; ws._goda = null; ws._hello = false; ws._sonT = Date.now(); ws._sonPong = Date.now();
+  ws.on('pong', () => { ws._sonPong = Date.now(); const r = Date.now() - ws._pingT; ws._rtt = ws._rtt == null ? r : Math.round(ws._rtt * 0.5 + r * 0.5); });
+  measureRtt(ws); ws._rttT = setInterval(guvenli('measureRtt', () => measureRtt(ws)), 3000);
   statDay(); stats.peakOnline = Math.max(stats.peakOnline, wss.clients.size + gwss.clients.size);
-  ws.on('message', raw => {
+  ws.on('message', raw => { try {
     ws._sonT = Date.now();
-    let d; try { d = JSON.parse(raw); } catch (e) { return; }
+    if (!mesajKovasi(ws)) return;
+    const d = mesajAyristir(raw); if (!d) return;
     if (d.t === 'hello') {
       if ((d.pv | 0) < MIN_PV_GODOT) { gSend(ws, { t: 'guncelle', minPv: MIN_PV_GODOT }); return; }
       ws._hello = true; ws._pv = d.pv | 0;
       ws._ad = String(d.ad || 'Oyuncu').slice(0, 16); ws._kimlik = /^[A-Z0-9]{3,12}$/.test(String(d.kimlik || '')) ? String(d.kimlik) : ''; ws._karakter = String(d.karakter || 'kivilcim').slice(0, 24);
       ws._engel = new Set((Array.isArray(d.engel) ? d.engel : []).slice(0, 200).map(String).filter(x => /^[A-Z0-9]{3,12}$/.test(x)));
+      if (ws._jeton) gJeton.delete(ws._jeton);   /* tekrar hello: eski jeton geçersiz (yetim jeton kalmaz) */
       ws._jeton = gYeniJeton(); gJeton.set(ws._jeton, ws);
       gSend(ws, { t: 'ok', id: ws._gid, minPv: MIN_PV_GODOT, jeton: ws._jeton });
       return;
@@ -498,8 +570,11 @@ gwss.on('connection', ws => {
     } else if (d.t === 'katil') {
       const oda = gOdalar.get(d.kod || '');
       if (oda && oda.uyeler.includes(ws)) return;
-      if (!oda || oda.basladi || oda.uyeler.length >= (oda.ozel ? OZEL_KAPASITE : 2)) { gSend(ws, { t: 'hata', neden: !oda ? 'oda yok' : oda.basladi ? 'oyunda' : 'oda dolu' }); return; }
-      if (oda.uyeler.some(w => !gUyumlu(w, ws))) { gSend(ws, { t: 'hata', neden: oda.uyeler.some(w => w._pv !== ws._pv) ? 'surum' : 'engel' }); return; }
+      /* oda var/yok/dolu/oyunda/sürüm/engel ayırt edilemesin: hepsi 'oda yok' (istemci metni: "Böyle bir oda yok."); deneme sınırı aşılırsa bağlantı kapanır */
+      if (!oda || oda.basladi || oda.uyeler.length >= (oda.ozel ? OZEL_KAPASITE : 2) || oda.uyeler.some(w => !gUyumlu(w, ws))) {
+        if (denemeAsildi(ws)) { console.log('[g] kod deneme sınırı:', ws._ip); try { ws.close(1008, 'hiz'); } catch (e) {} return; }
+        gSend(ws, { t: 'hata', neden: 'oda yok' }); return;
+      }
       gKuyruktanCik(ws); gOdadanCik(ws);
       oda.uyeler.push(ws); ws._goda = oda;
       gSend(ws, { t: 'oda', kod: oda.kod, oyuncu: oda.uyeler.length - 1 });
@@ -534,14 +609,14 @@ gwss.on('connection', ws => {
     } else if (d.t === 'ping') {
       gSend(ws, { t: 'pong', z: d.z });
     }
-  });
+  } catch (e) { console.log('[HATA] /g/sig mesaj', e && e.stack || e); } });
   const bye = () => {
     if (ws._bitti) return; ws._bitti = true;   /* error + close iki kez çağırır */
     clearInterval(ws._rttT); if (gKuyruktanCik(ws)) gKuyrukYayin();
     if (ws._devredildi) return;   /* kimliği yeni sokete geçti */
     if (ws._goda && ws._jeton) {   /* pv 5: odadaki üye askıya (yuvası durur); süre dolarsa ayrılır */
       console.log(`[g] askida: üye ${ws._gid} oda ${ws._goda.kod}`);
-      ws._askiT = setTimeout(() => { ws._askiT = null; if (ws._devredildi) return; gJeton.delete(ws._jeton); gLig.kopma(ws); gOdadanCik(ws); }, G_ASKI_MS);
+      ws._askiT = setTimeout(guvenli('aski', () => { ws._askiT = null; if (ws._devredildi) return; gJeton.delete(ws._jeton); gLig.kopma(ws); gOdadanCik(ws); }), G_ASKI_MS);
       return;
     }
     if (ws._jeton) gJeton.delete(ws._jeton);
@@ -550,10 +625,12 @@ gwss.on('connection', ws => {
   ws.on('close', bye); ws.on('error', bye);
 });
 app.use('/g/desync', express.json({ limit: '4kb' }));
+const gAlan = v => String(v ?? '').replace(/[\x00-\x1f\x7f\u2028\u2029]+/g, ' ').slice(0, 40);   // günlük satırı enjeksiyonu yok: kontrol karakteri temizle, 40'a kes
 app.post('/g/desync', (req, res) => {
-  const d = req.body || {};
+  if (hizAsildi(clientIp(req), 10, 'desync')) return res.status(429).json({ ok: false });
+  const d = (req.body && typeof req.body === 'object' && !Array.isArray(req.body)) ? req.body : {};
   gStats.desync++;
-  console.log(`[g] DESYNC pv ${d.pv} harita ${d.harita} tik ${d.tik} ${d.hashBiz} ≠ ${d.hashO}`);
+  console.log(`[g] DESYNC pv ${gAlan(d.pv)} harita ${gAlan(d.harita)} tik ${gAlan(d.tik)} ${gAlan(d.hashBiz)} ≠ ${gAlan(d.hashO)}`);
   res.json({ ok: true });
 });
 app.get('/g/surum', (req, res) => { res.set('Cache-Control', 'no-store'); res.json({ minPv: MIN_PV_GODOT, haritalar: G_HARITALAR }); });
@@ -562,6 +639,8 @@ const gMagaza = require('./g_magaza').kur(app);
 const gHesap = require('./g_hesap').kur(app);   // Faz 7.5 /g/ayar + hesap silme işi
 const gCuzdan = require('./g_cuzdan').kur(app);   // Faz 7.7 gem cüzdanı (/g/cuzdan v1)
 const gIade = require('./g_iade').kur();   // Sürüm 5 Play iadesinde gem geri alma
+require('./g_iade').bildirimKur(app);   // Play RTDN (Pub/Sub push) /g/play-bildirim
+require('./g_ekonomi').kur(app);   // GET /g/ekonomi (dükkân ekonomi sayıları, gem fiyatı yok)
 const gSosyal = require('./g_sosyal').kur(app);   // Faz 7.8 /g/rapor v1
 const gCokme = require('./g_cokme').kur(app);   // Adım 11 /g/cokme çökme raporu
 
@@ -574,7 +653,7 @@ app.get('/stats', (req, res) => {
     godot: { online: gwss.clients.size, kuyruk: gKuyruk.length, odalar: gOdalar.size, ...gStats, minPv: MIN_PV_GODOT, magaza: gMagaza.istat, hesap: gHesap.istat, cuzdan: gCuzdan.istat, iade: gIade.istat, sosyal: gSosyal.istat, lig: gLig.istat, cokme: gCokme.istat },
     online: wss.clients.size, queue: queue.length, rooms: rooms.size,
     today: stats.day, matches: stats.matches, kural: stats.kural, botFills: stats.botFills, peakOnline: stats.peakOnline,
-    ice: turnMode(), iceIssued: stats.iceIssued, iceDayCap: ICE_DAY_CAP, turn30dGB: guard.gb, turnCapGB: TURN_MONTH_CAP_GB, turnBlocked: guard.blocked, guardErr: guard.err, uptime: Math.round(process.uptime())
+    ice: turnMode(), iceIssued: stats.iceIssued, iceDayCap: ICE_DAY_CAP, turn30dGB: guard.gb, turnCapGB: TURN_MONTH_CAP_GB, turnBlocked: guard.blocked, guardErr: guard.err, yakalanmayan, uptime: Math.round(process.uptime())
   });
 });
 
@@ -584,5 +663,8 @@ app.get('/stats', (req, res) => {
 if (process.env.KEEP_AWAKE === '1' && process.env.RENDER_EXTERNAL_URL) {
   setInterval(() => { fetch(process.env.RENDER_EXTERNAL_URL + '/?keep=1').catch(() => {}); }, 10 * 60 * 1000);
 }
+
+/* Express hata yakalayıcısı (tüm route'lardan sonra): yığın izi / dosya yolu sızmasın */
+app.use((e, req, res, next) => { if (res.headersSent) return next(e); const k = Number.isInteger(e.status) && e.status >= 400 && e.status < 600 ? e.status : 500; if (k >= 500) console.log('[hata]', e.message); res.status(k).json({ ok: false }); });
 
 server.listen(PORT, '0.0.0.0', () => console.log(`darmaduman-net v2 hazır → :${PORT} (/peerjs, /mm, /ice, /stats)`));

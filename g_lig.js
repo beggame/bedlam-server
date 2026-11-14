@@ -134,7 +134,10 @@ function kur(app, s) {   // s: { gonder(ws, o), uyumlu(a, b), odaBaslat(wsA, wsB
     cik(ws); const m = ws._ligMac && maclar.get(ws._ligMac); if (!m || m.bitti || m.kopan) return;
     if (Object.keys(m.rapor).length === 0) { m.kopan = ws._ligUid; m.kopmaT = Date.now(); istat.kopma++; }
   }
-  setInterval(() => { eslestir(); const t = Date.now(); for (const [id, m] of maclar) if (t - m.t0 > 3 * 3600 * 1000) maclar.delete(id); }, 1000).unref?.();
+  setInterval(() => { try { eslestir(); const t = Date.now(); for (const [id, m] of maclar) if (t - m.t0 > 3 * 3600 * 1000) maclar.delete(id); } catch (e) { console.log('[lig] zamanlayıcı hata', e && e.message); } }, 1000).unref?.();
+  /** Günü geçmiş çift sayaçları (anahtar = 'uidA|uidB|YYYY-AA-GG') saatte bir temizle; gün sınırında bir önceki saatin günü de korunur. */
+  function ciftTemizle(simdi = Date.now()) { const gunler = new Set([new Date(simdi).toISOString().slice(0, 10), new Date(simdi - 3600e3).toISOString().slice(0, 10)]); for (const k of ciftGun.keys()) if (!gunler.has(k.slice(k.lastIndexOf('|') + 1))) ciftGun.delete(k); }
+  setInterval(() => { try { ciftTemizle(); } catch (e) { console.log('[lig] çift temizle hata', e && e.message); } }, 3600e3).unref?.();
 
   async function karar(macId, m) {
     if (m.bitti) return m.sonuc; m.bitti = true;
@@ -164,11 +167,19 @@ function kur(app, s) {   // s: { gonder(ws, o), uyumlu(a, b), odaBaslat(wsA, wsB
     m.sonuc = sonuc; for (const f of m.bekleyen) f(sonuc); m.bekleyen = []; return sonuc;
   }
 
+  /* hız sınırı (yayın öncesi denetim): lig arayüzü kapalıyken de uçlar açık; tek betik Firestore okuma kotasını bitirmesin */
+  const hiz = new Map();
+  const asildi = (anahtar, sinir) => { const t = Date.now(), a = (hiz.get(anahtar) || []).filter(x => t - x < 60000); a.push(t); hiz.set(anahtar, a); if (hiz.size > 20000) for (const [k, v] of hiz) if (!v.length || t - v[v.length - 1] > 60000) hiz.delete(k); return a.length > sinir; };
+  const ipAl = req => String(req.ip || (req.socket && req.socket.remoteAddress) || '?');
+  let tabloOnbellek = null, tabloT = 0;
+  const tabloAl = async () => { if (!tabloOnbellek || Date.now() - tabloT > 60000) { tabloOnbellek = await tablo(); tabloT = Date.now(); } return tabloOnbellek; };
   app.use('/g/sonuc', express.json({ limit: '4kb' })); app.use('/g/lig', express.json({ limit: '2kb' }));
   app.post('/g/sonuc', async (req, res) => {
     res.set('Cache-Control', 'no-store'); const d = req.body || {};
+    if (asildi('s-ip:' + ipAl(req), Number(process.env.LIG_IP_DK) || 60)) return res.status(429).json({ v: 1, ok: false, durum: 'hiz' });
     if (d.v !== 1) return res.status(400).json({ v: 1, ok: false, durum: 'surum', destek: [1] });
     let uid; try { uid = await kimlikDogrula(d.kimlik); } catch { return res.status(401).json({ v: 1, ok: false, durum: 'kimlik' }); }
+    if (asildi('s-uid:' + uid, Number(process.env.LIG_UID_DK) || 20)) return res.status(429).json({ v: 1, ok: false, durum: 'hiz' });
     const m = maclar.get(String(d.macId || '')); if (!m || !m.uids.includes(uid)) return res.status(404).json({ v: 1, ok: false, durum: 'mac_yok' });
     if (!m.rapor[uid]) m.rapor[uid] = { kazanan: Number.isInteger(d.kazanan) ? d.kazanan : -1, hashlar: Array.isArray(d.hashlar) ? d.hashlar.slice(0, 8) : [] };
     let yanitlandi = false;
@@ -181,17 +192,19 @@ function kur(app, s) {   // s: { gonder(ws, o), uyumlu(a, b), odaBaslat(wsA, wsB
   });
   app.post('/g/lig', async (req, res) => {
     res.set('Cache-Control', 'no-store'); const d = req.body || {};
+    if (asildi('l-ip:' + ipAl(req), Number(process.env.LIG_IP_DK) || 60)) return res.status(429).json({ v: 1, ok: false, durum: 'hiz' });
     if (d.v !== 1) return res.status(400).json({ v: 1, ok: false, durum: 'surum', destek: [1] });
     if (!process.env.FIREBASE_SERVIS_JSON && !sahte()) return res.status(503).json({ v: 1, ok: false, durum: 'dogrulayici_yok' });
     let uid; try { uid = await kimlikDogrula(d.kimlik); } catch { return res.status(401).json({ v: 1, ok: false, durum: 'kimlik' }); }
+    if (asildi('l-uid:' + uid, Number(process.env.LIG_UID_DK) || 20)) return res.status(429).json({ v: 1, ok: false, durum: 'hiz' });
     try {
       const w = await oku(uid); const l = w.l; const g = ligBul(l.puan);
       const o = { v: 1, ok: true, ben: { puan: l.puan, lig: g.id, mac: l.mac, galibiyet: l.galibiyet, gecici: l.mac < LIG.puan.geciciMac, cezaBitis: l.cezaBitis, enYuksekLig: l.enYuksekLig }, sezon: { id: LIG.sezon.id, bitis: LIG.sezon.bitis } };
-      if (d.tablo) o.tablo = await tablo();
+      if (d.tablo) o.tablo = await tabloAl();   /* 60 sn önbellek: tablo isteği Firestore'a en çok dakikada bir gider */
       res.json(o);
     } catch (e) { res.status(502).json({ v: 1, ok: false, durum: 'hata' }); }
   });
-  return { istat, araIstek, cik, kopma, eslestir };
+  return { istat, araIstek, cik, kopma, eslestir, ciftTemizle, _ciftGun: ciftGun };
 }
 
 /** Sezon kapanışı (bitiş geçtiyse, bir kez): en yüksek ligin ödülü sunucu envanterine, puan yumuşak sıfırlama. Dönüş: işlenen oyuncu sayısı. */

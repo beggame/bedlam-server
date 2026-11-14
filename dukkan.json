@@ -1,12 +1,22 @@
 {
  "_aciklama": "Faz 7.7 dükkân ve ekonomi (godot/EKONOMI.md). coin: oynayarak (yerel profil) ve dükkândaki ödüllü reklamdan (reklamOdul: reklam başına coin, günde en çok gunluk kez; kozmetik/gem vermez); gem: gerçek para test ürünü + nadir ödül, bakiye SUNUCUDA (sunucu/g_cuzdan.js; bu dosyanın kopyası sunucu/dukkan.json). Güç veren ürün yok; ücretli paketteki kutunun oranları ORANLAR penceresinde.",
- "surum": 1,
+ "surum": 4,
  "coin": {
   "mac": 12,
   "galibiyet": 18,
   "dusurme": 3,
-  "seviye": 50,
-  "gorevOran": 0.2
+  "seviye": 20,
+  "gorevOran": 0.12
+ },
+ "kasma": {
+  "sureCanSn": 15,
+  "sureUstSn": 45,
+  "kolayMuafSeviye": 10,
+  "kolayKat": 0.75,
+  "meydanTekrarGunluk": 3,
+  "meydanTekrarKat": 0.5,
+  "ayniRakipGunluk": 5,
+  "ayniRakipKat": 0.5
  },
  "reklamOdul": {
   "coin": 60,
@@ -19,25 +29,36 @@
  },
  "gunlukSayi": 5,
  "turSeviye": {
-  "aura": 21,
-  "plaka": 17,
-  "gg": 17,
-  "cikartma": 5
+  "zafer": 14,
+  "plaka": 18,
+  "cikartma": 22,
+  "dogma": 26,
+  "iz": 30,
+  "gg": 34,
+  "aura": 38
  },
  "turAdim": {
-  "aura": 1,
-  "plaka": 3,
-  "gg": 1,
-  "cikartma": 1
+  "zafer": 10,
+  "plaka": 4,
+  "cikartma": 3,
+  "dogma": 3,
+  "iz": 2,
+  "gg": 2,
+  "aura": 1
+ },
+ "auraKademe": {
+  "kat2": 1,
+  "kat3": 2,
+  "gemCoin": 150
  },
  "hediye": [
-  30,
-  40,
-  50,
-  30,
-  40,
-  50,
-  100
+  15,
+  20,
+  25,
+  15,
+  20,
+  25,
+  50
  ],
  "fiyat": {
   "aura_halka_kirmizi": {
@@ -1289,7 +1310,8 @@
     "plaka_lav",
     "gg_alev",
     "gg_lav",
-    "zafer_havai_fisek_dk"
+    "zafer_havai_fisek_dk",
+    "aura_alev_turuncu"
    ],
    "tekSefer": true,
    "set": true,
@@ -1303,7 +1325,8 @@
     "plaka_neon",
     "iz_yildiz_gece",
     "gg_kafatasi",
-    "zafer_yildirim"
+    "zafer_yildirim",
+    "dogma_golge"
    ],
    "tekSefer": true,
    "set": true,
@@ -1317,7 +1340,8 @@
     "plaka_gul",
     "iz_serit_pembe",
     "gg_kedi",
-    "zafer_konfeti_dk"
+    "zafer_konfeti_dk",
+    "aura_kanat_gul"
    ],
    "tekSefer": true,
    "set": true,
@@ -1331,7 +1355,8 @@
     "plaka_buz",
     "dogma_gokta_buz",
     "iz_serit_mavi",
-    "gg_elektrik"
+    "gg_elektrik",
+    "plaka_okyanus"
    ],
    "tekSefer": true,
    "set": true,
@@ -1359,7 +1384,8 @@
     "gg_palyaco",
     "gg_ez",
     "gg_l",
-    "zafer_cop"
+    "zafer_cop",
+    "gg_skill"
    ],
    "tekSefer": true,
    "set": true,

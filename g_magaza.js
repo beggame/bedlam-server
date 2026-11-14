@@ -11,6 +11,7 @@
 // Ortam değişkenleri:
 //   PLAY_SERVIS_JSON  Google Cloud servis hesabı JSON anahtarı (Play Console › API erişimi'nde yetkili). Yoksa doğrulama yapılamaz.
 //   GERCEK_SATIN=1    gerçek (test olmayan) satın almaları kabul et. VARSAYILAN KAPALI: şimdilik yalnız lisans test hesabı / test kartı.
+//   (g_cuzdan /yukle sonrası) playOnayla: Play purchases.products.consume / acknowledge çağrılır.
 //   SAHTE_SATIN=1     YALNIZ YEREL GELİŞTİRME: "sahte:" ile başlayan jetonlar geçerli test satın alması sayılır (PC uçtan uca testi).
 //                     Render'da ASLA açılmaz.
 // ============================================================================
@@ -49,12 +50,25 @@ async function playDogrula(paket, urun, jeton) {
   return r.json();
 }
 
+/** Play yanıtı istemcinin bildirdiği ürünle uyumlu mu: productId varsa aynı olmalı, quantity > 1 olamaz (ucuz ürünün jetonuyla pahalı ürün / çoklu adet istismarı). */
+function urunUygun(p, urun) { if (p && typeof p.productId === 'string' && p.productId !== urun) return false; if (p && p.quantity !== undefined && +p.quantity > 1) return false; return true; }
+
+/** Play onayı: tur 'consume' (tüketilir ürün; onayı da kapsar) | 'acknowledge' (kalıcı ürün). Hata fırlatır; çağıran yutar (istemci de tüketiyor, ikisi birden zararsız). */
+async function playOnayla(paket, urun, jeton, tur) {
+  if (process.env.SAHTE_SATIN === '1' && jeton.startsWith('sahte:')) return { sahte: true };
+  if (!process.env.PLAY_SERVIS_JSON) return { dogrulayiciYok: true };
+  const t = await erisimJetonu();
+  const r = await fetch(`https://androidpublisher.googleapis.com/androidpublisher/v3/applications/${encodeURIComponent(paket)}/purchases/products/${encodeURIComponent(urun)}/tokens/${encodeURIComponent(jeton)}:${tur === 'consume' ? 'consume' : 'acknowledge'}`, { method: 'POST', headers: { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' }, body: '{}' });
+  if (!r.ok) throw new Error('play ' + tur + ' ' + r.status);
+  return { ok: true };
+}
+
 // ---- basit hız sınırı (IP başına dakikada 30) ----
 const sayac = new Map();
-function hizAsildi(ip) {
-  const d = Math.floor(Date.now() / 60000), k = ip + '|' + d, n = (sayac.get(k) || 0) + 1; sayac.set(k, n);
+function hizAsildi(ip, limit = 30, ad = '') {   // ad: ayrı sayaç alanı (ör. 'desync', 'cuzdan-uid'); varsayılan çağrı (yalnız ip, 30) eskisi gibi
+  const d = Math.floor(Date.now() / 60000), k = ad + '#' + ip + '|' + d, n = (sayac.get(k) || 0) + 1; sayac.set(k, n);
   if (sayac.size > 5000) for (const key of sayac.keys()) if (!key.endsWith('|' + d)) sayac.delete(key);
-  return n > 30;
+  return n > limit;
 }
 
 const istat = { satin: 0, gecerli: 0, red: 0 };
@@ -74,7 +88,7 @@ function kur(app, secenek = {}) {
     try { p = await dogrula(d.paket, d.urun, d.jeton); }
     catch (e) { console.log('[satin] dogrulama hatasi', e.message); return yanit(502, { ok: false, durum: 'hata', urun: u.id }); }
     if (p.dogrulayiciYok) return yanit(503, { ok: false, durum: 'dogrulayici_yok', urun: u.id });
-    if (p.yok) return yanit(200, { ok: false, durum: 'gecersiz', urun: u.id });
+    if (p.yok || !urunUygun(p, d.urun)) return yanit(200, { ok: false, durum: 'gecersiz', urun: u.id });
     const test = p.purchaseType === 0;
     const temel = { urun: u.id, tur: u.tur, test, siparis: p.orderId || '' };
     if (!test && process.env.GERCEK_SATIN !== '1') return yanit(200, { ok: false, durum: 'gercek_kapali', ...temel });
@@ -88,4 +102,4 @@ function kur(app, secenek = {}) {
   return { istat };
 }
 
-module.exports = { kur, playDogrula, erisimJetonu, KATALOG, istat };
+module.exports = { kur, urunUygun, playDogrula, playOnayla, erisimJetonu, KATALOG, istat, hizAsildi };

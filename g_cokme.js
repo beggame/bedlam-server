@@ -37,6 +37,24 @@ async function firestoreYaz(imza, k, n) {
   if (!r.ok) throw new Error('yaz ' + r.status);
 }
 
+const SAKLAMA_MS = 90 * 24 * 3600 * 1000;
+/** `son` alanı 90 günden eski cokme/* belgelerini siler (günde bir). Servis anahtarı yoksa sessizce atlanır. → silinen sayısı */
+async function eskiTemizle(simdi = Date.now()) {
+  if (!process.env.FIREBASE_SERVIS_JSON) return 0;
+  const t = await erisimJetonu(), H = { Authorization: 'Bearer ' + t, 'Content-Type': 'application/json' };
+  const q = { structuredQuery: { from: [{ collectionId: 'cokme' }], where: { fieldFilter: { field: { fieldPath: 'son' }, op: 'LESS_THAN', value: { integerValue: String(simdi - SAKLAMA_MS) } } }, limit: 500 } };
+  let toplam = 0;
+  for (let tur = 0; tur < 20; tur++) {
+    const r = await fetch(FS + ':runQuery', { method: 'POST', headers: H, body: JSON.stringify(q) });
+    if (!r.ok) throw new Error('cokme sorgu ' + r.status);
+    const l = (await r.json()).filter(e => e.document).map(e => e.document.name); if (!l.length) break;
+    for (const ad of l) { const s = await fetch('https://firestore.googleapis.com/v1/' + ad, { method: 'DELETE', headers: H }); if (!s.ok && s.status !== 404) throw new Error('cokme sil ' + s.status); toplam++; }
+    if (l.length < 500) break;
+  }
+  if (toplam) console.log(`[cokme] ${toplam} eski rapor silindi (>90 gün)`);
+  return toplam;
+}
+
 function kaydet(d, simdi = Date.now()) {
   const mesaj = kirp(d.m, 300), yigin = kirp(d.y, 2000), n = Math.min(Math.max(tamsayi(d.n), 1), 1000000);
   const imza = imzaAl(mesaj, yigin), eski = bellek.get(imza);
@@ -58,6 +76,10 @@ function kur(app) {
     res.json({ ok: true });
     if (process.env.FIREBASE_SERVIS_JSON) firestoreYaz(imza, k, n).catch(e => { istat.fsHata++; console.log('[cokme] firestore hatası', e.message); });
   });
+  if (process.env.NODE_ENV !== 'test' && process.env.FIREBASE_SERVIS_JSON) {
+    const dongu = () => eskiTemizle().catch(e => console.log('[cokme] temizlik hatası', e.message));
+    setTimeout(dongu, 10 * 60 * 1000).unref(); setInterval(dongu, 24 * 3600 * 1000).unref();
+  }
   app.get('/g/cokme', (req, res) => {
     const a = process.env.COKME_ANAHTAR;
     if (!a || typeof req.query.anahtar !== 'string' || req.query.anahtar !== a) return res.status(404).end();
@@ -66,4 +88,4 @@ function kur(app) {
   return { istat, bellek };
 }
 
-module.exports = { kur, kaydet, imzaAl, istat, _bellek: bellek, _ipSayac: ipSayac };
+module.exports = { kur, kaydet, eskiTemizle, imzaAl, istat, _bellek: bellek, _ipSayac: ipSayac };
