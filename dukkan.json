@@ -5,13 +5,13 @@
   "mac": 12,
   "galibiyet": 18,
   "dusurme": 3,
-  "seviye": 20,
+  "seviye": 30,
   "gorevOran": 0.12
  },
  "kasma": {
   "sureCanSn": 15,
   "sureUstSn": 45,
-  "kolayMuafSeviye": 10,
+  "kolayMuafSeviye": 6,
   "kolayKat": 0.75,
   "meydanTekrarGunluk": 3,
   "meydanTekrarKat": 0.5,
@@ -29,21 +29,21 @@
  },
  "gunlukSayi": 5,
  "turSeviye": {
-  "zafer": 14,
-  "plaka": 18,
-  "cikartma": 22,
-  "dogma": 26,
-  "iz": 30,
-  "gg": 34,
-  "aura": 38
+  "zafer": 9,
+  "plaka": 12,
+  "cikartma": 15,
+  "dogma": 17,
+  "iz": 20,
+  "gg": 23,
+  "aura": 26
  },
  "turAdim": {
-  "zafer": 10,
-  "plaka": 4,
-  "cikartma": 3,
-  "dogma": 3,
-  "iz": 2,
-  "gg": 2,
+  "zafer": 8,
+  "plaka": 3,
+  "cikartma": 2,
+  "dogma": 2,
+  "iz": 1,
+  "gg": 1,
   "aura": 1
  },
  "auraKademe": {

@@ -1,6 +1,253 @@
 {
- "_aciklama": "Kupa yolu gem ödülleri (sunucu doğrulaması; /g/cuzdan/odul). kupaYolu = godot/veri/ilerleme.json kupaYolu bloğunun KOPYASI (test_kupa.js eşitliği denetler); kutuGem = kutu gem düşüşünün izinli aralığı; gunlukKutuGem = kimlik başına günlük kutu gem tavanı; haftaSeri = haftalık yol gemisi (odul tur hafta) seri kademeleri (n = ardışık hafta sayısı, gem = o kademenin ödülü; seri 1 hafta atlanırsa bir kademe düşer); hedefGem = oyun hedefi gem ödülleri (tur hedef, id h_<kural>; ilerleme.json oyunHedefleri gem alanından üretilir; tek sefer, gunlukHedef günlük tavan); efsaneGun = kutudan efsane öğe (tur efsane) için iki ödül arası en az gün; yolTaban/yolGun ve yolUst{taban,gun} = erişilebilir adım üst sınırları (ilk istekten itibaren; ikisinden biri aşılırsa sinir); hedefGun = hedefin en erken verilebileceği hesap yaşı (gün); efsaneIlkGun = efsane için en az hesap yaşı (gün); odulIzleme{gun,gem} = yalnız ölçüm: kimlik başına gun günlük pencerede gem eşiği aşılınca günlüğe [odul] hizli yazılır (engel değil).",
+ "_aciklama": "Kupa yolu gem ödülleri (sunucu doğrulaması; /g/cuzdan/odul). kupaYolu = godot/veri/ilerleme.json kupaYolu bloğunun KOPYASI (test_kupa.js eşitliği denetler); kutuGem = kutu gem düşüşünün izinli aralığı; gunlukKutuGem = kimlik başına günlük kutu gem tavanı; haftaSeri = haftalık yol gemisi (odul tur hafta) seri kademeleri (n = ardışık hafta sayısı, gem = o kademenin ödülü; seri 1 hafta atlanırsa bir kademe düşer); hedefGem = oyun hedefi gem ödülleri (tur hedef, id h_<kural>; ilerleme.json oyunHedefleri gem alanından üretilir; tek sefer, gunlukHedef günlük tavan); efsaneGun = kutudan efsane öğe (tur efsane) için iki ödül arası en az gün; yolTaban/yolGun ve yolUst{taban,gun} = erişilebilir adım üst sınırları (ilk istekten itibaren; ikisinden biri aşılırsa sinir); hedefGun = hedefin en erken verilebileceği hesap yaşı (gün); efsaneIlkGun = efsane için en az hesap yaşı (gün); odulIzleme{gun,gem} = yalnız ölçüm: kimlik başına gun günlük pencerede gem eşiği aşılınca günlüğe [odul] hizli yazılır (engel değil). kupaYoluEski = XP yarıya inmeden önceki (HEAD) tablo, birebir kopya: istek t=2 göndermeyen (güncellenmemiş) istemci bu tabloyla doğrulanır; t=2 gönderen yeni istemci kupaYolu ile. t yalnız 2 kabul edilir, başka değer eski tabloya düşer.",
  "kupaYolu": {
+  "adim": 5,
+  "coinArtis": 0.03,
+  "gemYerineCoin": 180,
+  "varsayilan": "temel",
+  "sablonlar": {
+   "temel": [
+    {
+     "coin": 15
+    },
+    {
+     "coin": 20
+    },
+    {
+     "kutu": "kucuk"
+    },
+    {
+     "coin": 30
+    },
+    {
+     "kutu": "kucuk",
+     "adet": 2
+    }
+   ],
+   "bes": [
+    {
+     "coin": 25
+    },
+    {
+     "coin": 35
+    },
+    {
+     "gem": 1
+    },
+    {
+     "coin": 50
+    },
+    {
+     "kutu": "buyuk"
+    }
+   ],
+   "on": [
+    {
+     "coin": 40
+    },
+    {
+     "kutu": "kucuk"
+    },
+    {
+     "gem": 2
+    },
+    {
+     "kutu": "kucuk",
+     "adet": 2
+    },
+    {
+     "kutu": "buyuk"
+    }
+   ],
+   "ilk": [
+    {
+     "coin": 6
+    },
+    {
+     "coin": 8
+    },
+    {
+     "gem": 3
+    },
+    {
+     "coin": 12
+    },
+    {
+     "kutu": "kucuk"
+    }
+   ],
+   "temelErken": [
+    {
+     "coin": 6
+    },
+    {
+     "coin": 8
+    },
+    {
+     "kutu": "kucuk"
+    },
+    {
+     "coin": 12
+    },
+    {
+     "kutu": "kucuk",
+     "adet": 2
+    }
+   ],
+   "besErken": [
+    {
+     "coin": 10
+    },
+    {
+     "coin": 14
+    },
+    {
+     "gem": 1
+    },
+    {
+     "coin": 20
+    },
+    {
+     "kutu": "buyuk"
+    }
+   ],
+   "onErken": [
+    {
+     "coin": 16
+    },
+    {
+     "kutu": "kucuk"
+    },
+    {
+     "gem": 2
+    },
+    {
+     "kutu": "kucuk",
+     "adet": 2
+    },
+    {
+     "kutu": "buyuk"
+    }
+   ],
+   "bes20": [
+    {
+     "coin": 25
+    },
+    {
+     "coin": 35
+    },
+    {
+     "gem": 3
+    },
+    {
+     "coin": 50
+    },
+    {
+     "kutu": "buyuk"
+    }
+   ],
+   "on20": [
+    {
+     "coin": 40
+    },
+    {
+     "kutu": "kucuk"
+    },
+    {
+     "gem": 6
+    },
+    {
+     "kutu": "kucuk",
+     "adet": 2
+    },
+    {
+     "kutu": "buyuk"
+    }
+   ],
+   "bes40": [
+    {
+     "coin": 25
+    },
+    {
+     "coin": 35
+    },
+    {
+     "gem": 5
+    },
+    {
+     "coin": 50
+    },
+    {
+     "kutu": "buyuk"
+    }
+   ],
+   "on40": [
+    {
+     "coin": 40
+    },
+    {
+     "kutu": "kucuk"
+    },
+    {
+     "gem": 10
+    },
+    {
+     "kutu": "kucuk",
+     "adet": 2
+    },
+    {
+     "kutu": "buyuk"
+    }
+   ]
+  },
+  "seviyeSablon": [
+   {
+    "seviyeler": [
+     2,
+     4,
+     6
+    ],
+    "sablon": "ilk"
+   },
+   {
+    "her": 10,
+    "min": 27,
+    "sablon": "on40"
+   },
+   {
+    "her": 5,
+    "min": 27,
+    "sablon": "bes40"
+   },
+   {
+    "her": 10,
+    "min": 13,
+    "sablon": "on20"
+   },
+   {
+    "her": 5,
+    "min": 13,
+    "sablon": "bes20"
+   },
+   {
+    "her": 10,
+    "max": 12,
+    "sablon": "onErken"
+   },
+   {
+    "her": 5,
+    "max": 12,
+    "sablon": "besErken"
+   },
+   {
+    "her": 1,
+    "max": 12,
+    "sablon": "temelErken"
+   }
+  ],
+  "coinCarpan": 1.4
+ },
+ "kupaYoluEski": {
   "adim": 5,
   "coinArtis": 0.03,
   "gemYerineCoin": 180,
@@ -251,14 +498,97 @@
   }
  },
  "gunlukKutuGem": 3,
- "haftaSeri": [{"n":1,"gem":1},{"n":2,"gem":2},{"n":3,"gem":3},{"n":4,"gem":4},{"n":5,"gem":6},{"n":6,"gem":8},{"n":26,"gem":12},{"n":52,"gem":15}],
- "hedefGem": {"mac:1000":10,"galibiyet:900":10,"galibiyet:450":10,"galibiyet:650":10,"seri:15":10,"seri:10":10,"cevrimici_galibiyet:80":10,"karakter_cesit:16":10,"dusurme:6000":10,"karakter_cesit:13":10,"mac:800":10,"mac:1800":10,"galibiyet:750":10,"dusurme:8000":10,"meydan_yildiz:75":10,"mod_galibiyet:tirmanma:80":10,"mod_galibiyet:tren:80":10,"galibiyet:1200":10,"galibiyet:1600":10,"bomba_dusurme:350":10,"cellat:40":10},
+ "haftaSeri": [
+  {
+   "n": 1,
+   "gem": 1
+  },
+  {
+   "n": 2,
+   "gem": 2
+  },
+  {
+   "n": 3,
+   "gem": 3
+  },
+  {
+   "n": 4,
+   "gem": 4
+  },
+  {
+   "n": 5,
+   "gem": 6
+  },
+  {
+   "n": 6,
+   "gem": 8
+  },
+  {
+   "n": 26,
+   "gem": 12
+  },
+  {
+   "n": 52,
+   "gem": 15
+  }
+ ],
+ "hedefGem": {
+  "mac:1000": 10,
+  "galibiyet:900": 10,
+  "galibiyet:450": 10,
+  "galibiyet:650": 10,
+  "seri:15": 10,
+  "seri:10": 10,
+  "cevrimici_galibiyet:80": 10,
+  "karakter_cesit:16": 10,
+  "dusurme:6000": 10,
+  "karakter_cesit:13": 10,
+  "mac:800": 10,
+  "mac:1800": 10,
+  "galibiyet:750": 10,
+  "dusurme:8000": 10,
+  "meydan_yildiz:75": 10,
+  "mod_galibiyet:tirmanma:80": 10,
+  "mod_galibiyet:tren:80": 10,
+  "galibiyet:1200": 10,
+  "galibiyet:1600": 10,
+  "bomba_dusurme:350": 10,
+  "cellat:40": 10
+ },
  "gunlukHedef": 3,
- "hedefGun": {"mac:1000":25,"galibiyet:900":30,"galibiyet:450":15,"galibiyet:650":22,"seri:15":1,"seri:10":1,"cevrimici_galibiyet:80":4,"karakter_cesit:16":1,"dusurme:6000":40,"karakter_cesit:13":1,"mac:800":20,"mac:1800":45,"galibiyet:750":25,"dusurme:8000":54,"meydan_yildiz:75":1,"mod_galibiyet:tirmanma:80":4,"mod_galibiyet:tren:80":4,"galibiyet:1200":40,"galibiyet:1600":54,"bomba_dusurme:350":1,"cellat:40":1},
+ "hedefGun": {
+  "mac:1000": 25,
+  "galibiyet:900": 30,
+  "galibiyet:450": 15,
+  "galibiyet:650": 22,
+  "seri:15": 1,
+  "seri:10": 1,
+  "cevrimici_galibiyet:80": 4,
+  "karakter_cesit:16": 1,
+  "dusurme:6000": 40,
+  "karakter_cesit:13": 1,
+  "mac:800": 20,
+  "mac:1800": 45,
+  "galibiyet:750": 25,
+  "dusurme:8000": 54,
+  "meydan_yildiz:75": 1,
+  "mod_galibiyet:tirmanma:80": 4,
+  "mod_galibiyet:tren:80": 4,
+  "galibiyet:1200": 40,
+  "galibiyet:1600": 54,
+  "bomba_dusurme:350": 1,
+  "cellat:40": 1
+ },
  "efsaneIlkGun": 30,
  "efsaneGun": 30,
  "yolTaban": 40,
  "yolGun": 12,
- "yolUst": {"taban":120,"gun":4},
- "odulIzleme": {"gun":7,"gem":35}
-}
+ "yolUst": {
+  "taban": 120,
+  "gun": 4
+ },
+ "odulIzleme": {
+  "gun": 7,
+  "gem": 35
+ }
+}

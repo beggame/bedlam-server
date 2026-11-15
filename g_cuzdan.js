@@ -29,8 +29,9 @@ const setEksik = (gs, sahip, parca) => gs.ogeler.filter(x => !sahip.includes(x) 
 const setFiyat = (gs, eksik) => { if (eksik.length === gs.ogeler.length) return gs.gem; const ayri = eksik.reduce((t, x) => t + (DUKKAN.fiyat[x]?.gem || 0), 0); return Math.min(ayri, Math.ceil(gs.gem * eksik.length / gs.ogeler.length / 10) * 10); };
 const KUPA = JSON.parse(fs.readFileSync(path.join(__dirname, 'kupa.json'), 'utf8'));   // kupa yolu / kutu gem tabloları (godot/veri/ilerleme.json ile eşit; test_kupa.js)
 /** Kupa yolu adımının gem ödülü (istemcideki Kupa.Odul ile aynı seçim; coin ölçeklemesi gem'i etkilemez). 0 = bu adımda gem yok. */
-function yolGem(idx) {
-  const y = KUPA.kupaYolu, adim = y.adim || 5, sv = Math.floor(idx / adim) + 1, k = idx % adim; let ad = y.varsayilan;
+/** t: istemcinin yol tablo sürümü (istek alanı "t"). Yalnız 2 yeni tabloyu (kupaYolu) seçer; yok ya da başka değer kupaYoluEski (güncellenmemiş istemci, XP yarılama öncesi tablo). */
+function yolGem(idx, t) {
+  const y = t === 2 ? KUPA.kupaYolu : (KUPA.kupaYoluEski || KUPA.kupaYolu), adim = y.adim || 5, sv = Math.floor(idx / adim) + 1, k = idx % adim; let ad = y.varsayilan;
   for (const e of y.seviyeSablon || []) if ((Array.isArray(e.seviyeler) ? e.seviyeler.includes(sv) : sv % e.her === 0) && sv >= (e.min || 1) && sv <= (e.max || Infinity) && y.sablonlar[e.sablon]) { ad = e.sablon; break; }   /* seviyeler: listedeki seviyeler; her: katları; min/max: seviye sınırları (dahil); ilk eşleşen kazanır */
   const sa = y.sablonlar[ad] || y.sablonlar.temel, o = sa[Math.min(k, sa.length - 1)]; return o && o.gem ? o.gem : 0;
 }
@@ -274,7 +275,7 @@ function kur(app, secenek = {}) {
     }
     const odId = id.replace(/:/g, '~');   /* Firestore belge kimliği: ':' URL'de özel yöntem ayracı olabilir */
     let efsane = false, hedefKural = '';
-    if (d.tur === 'yol') { const m = /^y([0-9]{1,4})$/.exec(id); if (m) { idx = +m[1]; gem = yolGem(idx); } }
+    if (d.tur === 'yol') { const m = /^y([0-9]{1,4})$/.exec(id); if (m) { idx = +m[1]; gem = yolGem(idx, d.t); } }
     else if (d.tur === 'hedef') { if (id.length <= 64 && /^h_[a-z_]+(:[a-z0-9_]+){1,3}$/.test(id) && Object.hasOwn(KUPA.hedefGem || {}, id.slice(2))) { hedefKural = id.slice(2); gem = KUPA.hedefGem[hedefKural]; } }
     else if (d.tur === 'efsane') { if (/^e[0-9]{1,9}$/.test(id)) { efsane = true; gem = 1; } }
     else if (d.tur === 'kutu') { const m = /^k([0-9]{1,9})$/.exec(id), kb = Object.hasOwn(KUPA.kutuGem, d.boy) ? KUPA.kutuGem[d.boy] : null; if (m && kb) gem = kutuMiktar(uid, id, kb); }
