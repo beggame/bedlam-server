@@ -471,16 +471,18 @@ function gKuyruktanCik(ws) { const n = gKuyruk.length; gKuyruk = gKuyruk.filter(
 /** K4 (pv değişmez): hızlı eşleşme isteği isteğe bağlı kisi (2|3|4) + takim ('tek'|'2v2', yalnız 4 kişide); alan yoksa 2 / 'tek' (eski istemci). */
 function gKuyrukKalip(d) {
   const kisi = [2, 3, 4].includes(+d.kisi) ? +d.kisi : 2;
-  return { kisi, takim: kisi === 4 && d.takim === '2v2' ? '2v2' : 'tek', kurallar: d.kurallar === 1 || d.kurallar === true ? 1 : 0 };   /* kurallar: FARKLI KURALLAR; yok = eski istemci → 0 (can) */
+  const ml = Array.isArray(d.modlar) ? d.modlar.slice(0, 3).filter(x => ALL_MODES.includes(x)) : [];   /* aramada seçilen modlar; yok/boş (eski istemci) = yalnız klasik */
+  return { kisi, takim: kisi === 4 && d.takim === '2v2' ? '2v2' : 'tek', kurallar: d.kurallar === 1 || d.kurallar === true ? 1 : 0, modlar: new Set(ml.length ? ml : ['classic']) };   /* kurallar: FARKLI KURALLAR; yok = eski istemci → 0 (can) */
 }
 /** a ile aynı kalıpta (kisi+takim, pv/engel uyumlu, saat dilimi penceresi içinde) en çok a.kisi insanlık grup; a her zaman ilk. */
 function gGrupBul(a, now) {
-  const cands = gKuyruk.filter(b => b !== a && b.kisi === a.kisi && b.takim === a.takim && gUyumlu(a.ws, b.ws)).sort((x, y) => Math.abs(x.bolge - a.bolge) - Math.abs(y.bolge - a.bolge));
-  const grup = [a];
+  const cands = gKuyruk.filter(b => b !== a && b.kisi === a.kisi && b.takim === a.takim && intersect(a.modlar, b.modlar).size > 0 && gUyumlu(a.ws, b.ws)).sort((x, y) => Math.abs(x.bolge - a.bolge) - Math.abs(y.bolge - a.bolge));
+  const grup = [a]; let ortak = a.modlar;   /* grubun ortak mod kümesi: her yeni üye kesişimi boşaltmamalı */
   for (const c of cands) {
     if (grup.length >= a.kisi) break;
     if (Math.abs(c.bolge - a.bolge) > tzWindow(now - Math.min(a.t0, c.t0))) continue;
-    if (grup.every(g => gUyumlu(g.ws, c.ws))) grup.push(c);
+    const yeni = intersect(ortak, c.modlar); if (!yeni.size) continue;
+    if (grup.every(g => gUyumlu(g.ws, c.ws))) { grup.push(c); ortak = yeni; }
   }
   return grup;
 }
@@ -498,9 +500,11 @@ function gKuyrukOdasi(grup) {
   const kod = makeCode();
   const oda = { kod, uyeler: grup.map(e => e.ws), basladi: false };
   gOdalar.set(kod, oda); for (const e of grup) e.ws._goda = oda;
-  const kural = KURAL.sec(kurallarCfg, 'classic', grup.map(e => e.kurallar), Date.now(), Math.random);   /* FARKLI KURALLAR: gruptaki herkes açıksa ağırlıklı (can 3, diğerleri 1); Godot hızlı eşleşme klasik */
+  let ortak = grup[0].modlar || new Set(['classic']); for (const e of grup) ortak = intersect(ortak, e.modlar || new Set(['classic']));
+  const mod = ortak.size ? pickMode(ortak) : 'classic';   /* ortak modlardan ağırlıklı (klasik 0,6, tren 0,2, tırmanma 0,2) */
+  const kural = KURAL.sec(kurallarCfg, mod, grup.map(e => e.kurallar), Date.now(), Math.random);   /* FARKLI KURALLAR: gruptaki herkes açıksa ağırlıklı (can 3, diğerleri 1); tırmanmada kural yok */
   stats.kural[kural] = (stats.kural[kural] || 0) + 1;
-  gBaslat(oda, 'ara', { ...(grup[0].kisi > 2 ? { kisi: grup[0].kisi, takim: grup[0].takim } : {}), ...(kural !== 'can' ? { kural } : {}) });
+  gBaslat(oda, 'ara', { ...(grup[0].kisi > 2 ? { kisi: grup[0].kisi, takim: grup[0].takim } : {}), ...(kural !== 'can' ? { kural } : {}), ...(mod !== 'classic' ? { mod } : {}) });
 }
 function gEslestir() {
   const now = Date.now();
