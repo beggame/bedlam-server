@@ -16,7 +16,11 @@
   "meydanTekrarGunluk": 3,
   "meydanTekrarKat": 0.5,
   "ayniRakipGunluk": 5,
-  "ayniRakipKat": 0.5
+  "ayniRakipKat": 0.5,
+  "ozelGunluk": 10,
+  "ozelKat": 0.5,
+  "ozelGorevGunluk": 10,
+  "ozelCevrimiciGorev": 3
  },
  "reklamOdul": {
   "coin": 60,

@@ -308,13 +308,22 @@ function roomAdd(ws, code) {
 
 // ---- WebSocket yönlendirme ------------------------------------------------
 const wss = new WebSocketServer({ noServer: true, maxPayload: 4096 });
+const gSos = require('./g_arkadas').kur({ mesajKovasi, mesajAyristir });   // Paket B1: /g/sos arkadaş çevrimiçi durumu + davet (g_arkadas.js)
 // PeerJS kendi 'upgrade' dinleyicisini takıp bilmediği yolları 400 ile reddediyor.
 // Çözüm: mevcut dinleyicileri devral, /mm bize, gerisi PeerJS'e.
 const peerUpgradeListeners = server.listeners('upgrade').slice();
 server.removeAllListeners('upgrade');
 server.on('upgrade', (req, socket, head) => {
   const url = (req.url || '').split('?')[0];
-  if (url === '/mm' || url === '/g/sig') {
+  if (url === '/mm' || url === '/g/sig' || url === '/g/sos') {
+    if (url === '/g/sos' && gSos.kapali()) { try { socket.write('HTTP/1.1 503 Service Unavailable\r\nConnection: close\r\n\r\n'); } catch (e) {} socket.destroy(); return; }   /* SOS_KAPALI=1 acil kapatma anahtarı */
+    if (url === '/g/sos') {   /* /g/sos: /mm + /g/sig sayacından AYRI IP sayacı (eşzamanlı + yükseltme hızı; g_arkadas.ipAl) */
+      const ip = wsIp(req), birak = gSos.ipAl(ip);
+      if (!birak) { console.log('[sos] IP sınırı'); try { socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n'); } catch (e) {} socket.destroy(); return; }
+      socket.once('close', birak);
+      gSos.wss.handleUpgrade(req, socket, head, ws => { ws._ip = ip; gSos.wss.emit('connection', ws, req); });
+      return;
+    }
     const ip = wsIp(req), n = ipBaglanti.get(ip) || 0;
     if (n >= WS_IP_EN_COK) { console.log('[ws] IP bağlantı sınırı:', ip); try { socket.write('HTTP/1.1 429 Too Many Requests\r\nConnection: close\r\n\r\n'); } catch (e) {} socket.destroy(); return; }
     ipBaglanti.set(ip, n + 1);
@@ -654,7 +663,7 @@ app.get('/stats', (req, res) => {
   statDay();
   res.set('Cache-Control', 'no-store');
   res.json({
-    godot: { online: gwss.clients.size, kuyruk: gKuyruk.length, odalar: gOdalar.size, ...gStats, minPv: MIN_PV_GODOT, magaza: gMagaza.istat, hesap: gHesap.istat, cuzdan: gCuzdan.istat, iade: gIade.istat, sosyal: gSosyal.istat, lig: gLig.istat, cokme: gCokme.istat },
+    godot: { online: gwss.clients.size, kuyruk: gKuyruk.length, odalar: gOdalar.size, ...gStats, minPv: MIN_PV_GODOT, magaza: gMagaza.istat, hesap: gHesap.istat, cuzdan: gCuzdan.istat, iade: gIade.istat, sosyal: gSosyal.istat, lig: gLig.istat, cokme: gCokme.istat, sos: gSos.istat() },
     online: wss.clients.size, queue: queue.length, rooms: rooms.size,
     today: stats.day, matches: stats.matches, kural: stats.kural, botFills: stats.botFills, peakOnline: stats.peakOnline,
     ice: turnMode(), iceIssued: stats.iceIssued, iceDayCap: ICE_DAY_CAP, turn30dGB: guard.gb, turnCapGB: TURN_MONTH_CAP_GB, turnBlocked: guard.blocked, guardErr: guard.err, yakalanmayan, uptime: Math.round(process.uptime())

@@ -49,22 +49,32 @@ async function erisimJetonu() {
 }
 
 // ---- Firebase ID jetonu doğrulama (securetoken sertifikaları, RS256) ----
-let cert = null, certBitis = 0;
+let cert = null, certBitis = 0, certBekle = null, certHataT = 0;
+/** Eşzamanlı çağrılar devam eden tek dış isteği paylaşır; başarısız çekmeden sonra 30 sn yeni dış istek atılmaz (doğrulama hata verir). */
 async function certAl() {
   if (cert && Date.now() < certBitis) return cert;
-  const r = await fetch('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com'); if (!r.ok) throw new Error('cert ' + r.status);
-  const m = /max-age=(\d+)/.exec((r.headers && r.headers.get && r.headers.get('cache-control')) || ''); cert = await r.json(); certBitis = Date.now() + (m ? +m[1] : 3600) * 1000; return cert;
+  if (certBekle) return certBekle;
+  if (Date.now() < certHataT) throw new Error('cert bekleme');
+  certBekle = (async () => {
+    try {
+      const r = await fetch('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com'); if (!r.ok) throw new Error('cert ' + r.status);
+      const m = /max-age=(\d+)/.exec((r.headers && r.headers.get && r.headers.get('cache-control')) || ''); cert = await r.json(); certBitis = Date.now() + (m ? +m[1] : 3600) * 1000; return cert;
+    } catch (e) { certHataT = Date.now() + 30000; throw e; } finally { certBekle = null; }
+  })();
+  return certBekle;
 }
-async function kimlikDogrula(idJeton) {
+/** { uid, exp } (exp: saniye). kimlikDogrula bunun yalnız uid döndüren hâlidir (imza/davranış değişmez). */
+async function kimlikDogrulaAyrinti(idJeton) {
   if (typeof idJeton !== 'string' || idJeton.length > 4096) throw new Error('bicim');
   const [h, p, s] = idJeton.split('.'); if (!s) throw new Error('bicim');
   const H = JSON.parse(Buffer.from(h, 'base64url')), P = JSON.parse(Buffer.from(p, 'base64url'));
-  if (H.alg !== 'RS256') throw new Error('alg'); const c = (await certAl())[H.kid]; if (!c) throw new Error('kid');
+  if (H.alg !== 'RS256') throw new Error('alg'); const tum = await certAl(); const c = Object.hasOwn(tum, H.kid) ? tum[H.kid] : null; if (!c) throw new Error('kid');
   if (!crypto.createVerify('RSA-SHA256').update(h + '.' + p).verify(c, Buffer.from(s, 'base64url'))) throw new Error('imza');
   const simdi = Date.now() / 1000;
   if (P.aud !== PROJE || P.iss !== 'https://securetoken.google.com/' + PROJE || !(P.exp > simdi) || P.iat > simdi + 300 || !P.sub) throw new Error('iddia');
-  return P.sub;
+  return { uid: P.sub, exp: P.exp };
 }
+async function kimlikDogrula(idJeton) { return (await kimlikDogrulaAyrinti(idJeton)).uid; }
 
 // ---- Firestore (yönetici REST) ----
 const deger = v => typeof v === 'number' ? { integerValue: String(v) } : typeof v === 'boolean' ? { booleanValue: v } : Array.isArray(v) ? { arrayValue: { values: v.map(x => ({ stringValue: String(x) })) } } : (v && typeof v === 'object') ? { mapValue: { fields: alanlar(v) } } : { stringValue: String(v) };
@@ -362,4 +372,4 @@ async function iadeUygula(iz, kayit = {}) {
   }
   throw new Error('iade cakisma');
 }
-module.exports = { odulIzle, _odulHiz: odulHiz, haftaMs, seriHesap, efsaneSec, EFSANE_ADAY, isoHafta, setGoc, kur, iadeUygula, gemGiris, yolGem, kimlikDogrula, erisimJetonu, istat, ogeEkle, kutuMiktar, olcekle, coz, _bellek: bellek };
+module.exports = { odulIzle, _odulHiz: odulHiz, haftaMs, seriHesap, efsaneSec, EFSANE_ADAY, isoHafta, setGoc, kur, iadeUygula, gemGiris, yolGem, kimlikDogrula, kimlikDogrulaAyrinti, erisimJetonu, istat, ogeEkle, kutuMiktar, olcekle, coz, _bellek: bellek };
